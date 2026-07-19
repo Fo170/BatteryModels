@@ -72,19 +72,33 @@ Bibliothèque complète de modèles paramétriques pour batteries, incluant tabl
 
 ## 🚀 Installation
 
-### Via Arduino IDE
-1. Téléchargez la librairie au format ZIP depuis [GitHub](https://github.com/Fo170/BatteryModels)
-2. Dans Arduino IDE : `Croquis > Inclure une bibliothèque > Ajouter la bibliothèque .ZIP`
+### Via Arduino Library Manager (Recommended) ⭐
+1. Arduino IDE : `Croquis > Inclure une bibliothèque > Gérer les bibliothèques`
+2. Recherchez `BatteryModels`
+3. Installez la dernière version (1.2.0+)
 
-### Via PlatformIO
+### Via Arduino IDE (Manual ZIP)
+1. Téléchargez le ZIP depuis [Latest Release](https://github.com/Fo170/BatteryModels/releases)
+2. Arduino IDE : `Croquis > Inclure une bibliothèque > Ajouter la bibliothèque .ZIP`
+
+### Via PlatformIO (Recommended) ⭐
 Ajoutez à votre `platformio.ini` :
+
+**Pour v1.2.0 (stable):**
 ```ini
 lib_deps =
-    https://github.com/Fo170/BatteryModels.git
+    https://github.com/Fo170/BatteryModels.git@^1.2.0
+```
+
+**Ou via le registry:**
+```ini
+lib_deps =
+    BatteryModels
 ```
 
 ### Manuellement
-Copiez `BatteryModels.h` dans le dossier `libraries/` de votre projet Arduino ou dans `lib/` pour PlatformIO.
+1. Téléchargez `src/BatteryModels.h` depuis [GitHub](https://github.com/Fo170/BatteryModels/releases)
+2. Copiez dans le dossier `libraries/BatteryModels/` (Arduino) ou `lib/BatteryModels/` (PlatformIO)
 
 ## 📖 Utilisation rapide
 
