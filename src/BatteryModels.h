@@ -1,6 +1,17 @@
 #ifndef BATTERY_MODELS_H
 #define BATTERY_MODELS_H
 
+/*
+  BatteryModels v1.2.0 - Modèles paramétriques avancés pour batteries
+
+  🔗 COMPATIBILITÉ : Cette bibliothèque est entièrement compatible avec BatteryKalman
+  (https://github.com/Fo170/BatteryKalman) pour une fusion optimale d'estimations SoC
+  via filtre de Kalman adaptatif. Voir README.md pour plus de détails.
+
+  Cette bibliothèque fourrit les modèles physiques (OCV, Thévenin, Arrhenius thermique)
+  que BatteryKalman utilise comme base pour son estimation de Kalman.
+*/
+
 #include <Arduino.h>
 #include <math.h>
 
