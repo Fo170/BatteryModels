@@ -1,0 +1,62 @@
+{
+  "name": "BatteryModels",
+  "version": "1.2.0",
+  "description": "Bibliothèque complète de modèles pour batteries (15 technologies) avec Thévenin dynamique et modèles thermiques avancés (Arrhenius exponentiel, RC thermique, OCV polynomial). Supportées: Plomb, Lithium, NiFe, Sodium-Ion, NiMH, Alkaline. Précision ±1.4% SoC (-30 à +80°C).",
+  "keywords": [
+    "battery",
+    "battery-model",
+    "ocv",
+    "soc",
+    "thevenin",
+    "thermal-compensation",
+    "arrhenius",
+    "lifepo4",
+    "lion",
+    "lipo",
+    "lto",
+    "lmno",
+    "nmc",
+    "nca",
+    "nife",
+    "sodium-ion",
+    "na-ion",
+    "nimh",
+    "alkaline",
+    "plomb",
+    "agm",
+    "gel",
+    "flooded",
+    "mppt",
+    "battery-monitoring",
+    "coulomb-counting",
+    "peukert"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Fo170/BatteryModels.git"
+  },
+  "authors": [
+    {
+      "name": "Fo170",
+      "url": "https://github.com/Fo170",
+      "maintainer": true
+    }
+  ],
+  "license": "GPL-3.0-only",
+  "frameworks": "arduino",
+  "platforms": [
+    "espressif8266",
+    "espressif32",
+    "atmelsam",
+    "teensy",
+    "ststm32",
+    "raspberrypi",
+    "atmelavr"
+  ],
+  "headers": "BatteryModels.h",
+  "dependencies": {
+  },
+  "examples": [
+    "examples/BasicModel/*.ino"
+  ]
+}
