@@ -2,11 +2,13 @@
 #define BATTERY_MODELS_H
 
 /*
-  BatteryModels v1.2.0 - Modèles paramétriques avancés pour batteries
+  BatteryModels v1.3.0 - Modèles paramétriques avancés pour batteries
 
   🔗 COMPATIBILITÉ : Cette bibliothèque est entièrement compatible avec BatteryKalman
   (https://github.com/Fo170/BatteryKalman) pour une fusion optimale d'estimations SoC
-  via filtre de Kalman adaptatif. Voir README.md pour plus de détails.
+  via filtre de Kalman adaptatif. BatteryKalman v1.5.3 intègre les corrections
+  (dont detectChargeState FLOAT) et s'appuie sur les modèles physiques de BatteryModels.
+  Voir README.md pour plus de détails.
 
   Cette bibliothèque fourrit les modèles physiques (OCV, Thévenin, Arrhenius thermique)
   que BatteryKalman utilise comme base pour son estimation de Kalman.
@@ -794,9 +796,13 @@ public:
         bool near_abs = (voltage >= V_abs_ref - V_tol) && (voltage <= V_abs_ref + V_tol);
         bool near_float = (voltage >= V_float_ref - V_tol) && (voltage <= V_float_ref + V_tol * 0.5f);
 
+        // FIX v1.3.0: near_float doit être testé AVANT in_rest.
+        // En float, le courant chute sous 0.05A : l'ancien ordre classait
+        // la batterie en State_REST et jamais State_FLOAT, privant
+        // BatteryKalman du point de référence "batterie pleine" (SoC 100%).
         if (discharging) return State_DISCHARGE;
-        if (in_rest) return State_REST;
         if (near_float && fabsf(current) < I_float_max) return State_FLOAT;
+        if (in_rest) return State_REST;
         if (near_abs && charging) return State_ABSORPTION;
         if (charging) return State_BULK;
 

@@ -4,6 +4,49 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.3.0] - 2026-08-03 - Bug Fix: detectChargeState() FLOAT
+
+### 🐛 Fixed
+
+- **`detectChargeState()` : `State_FLOAT` masqué par `State_REST`.**
+  - L'ordre des tests plaçait `in_rest` avant `near_float`, donc une batterie
+    maintenue en float avec un courant < 0,05 A était classée `State_REST`
+    au lieu de `State_FLOAT`.
+  - Le test `near_float` passe désormais **avant** `in_rest` (ordre :
+    discharging → near_float → in_rest → near_abs → BULK), restaurant le
+    point de référence « batterie pleine » (SoC = 100 %, confiance 95 %)
+    pour BatteryKalman.
+
+### 🔄 Changed
+
+- `BatteryModels.h` : commentaire de version → v1.3.0 ; documentation
+  BatteryKalman mise à jour (v1.5.3 intègre les corrections F1–F8, dont
+  cette détection FLOAT).
+- `library.json` : version → 1.3.0, description complétée.
+
+### ✅ Backward Compatibility
+
+- **100% compatible** avec v1.1.0 et v1.2.0 — aucun changement d'API.
+- Seul l'ordre de priorité des états de charge est corrigé ; les
+  comportements REST / DISCHARGE / ABSORPTION / BULK restent identiques.
+
+### 🧪 Validation
+
+- Table de test (plomb 12 V, float = 14,22 V) :
+
+| Tension | Courant | Avant (buggé) | Après (corrigé) |
+|---|---|---|---|
+| 14,25 V | +0,01 A | `State_REST` ❌ | `State_FLOAT` ✅ |
+| 14,25 V | +0,30 A | `State_FLOAT` | `State_FLOAT` |
+| 12,50 V | 0,00 A | `State_REST` | `State_REST` |
+| 12,20 V | −2,0 A | `State_DISCHARGE` | `State_DISCHARGE` |
+
+- Données réelles (`evo_bat.csv`) : la capacité estimée passe de 108,2 Ah
+  (buggé) à 43,5 Ah (corrigé), cohérente avec des batteries plomb usagées
+  annoncées < 50 Ah.
+
+---
+
 ## [1.2.0] - 2026-07-19 - Advanced Thermal Models
 
 ### ✨ New Features
@@ -186,22 +229,22 @@ bool isRechargeable() const;
 - **1.0.1**: Bug fixes + license change (same API)
 - **1.1.0**: Feature addition (tech expansion)
 - **1.2.0**: Enhancement (thermal models, new API methods)
+- **1.3.0**: Bug fix (detectChargeState FLOAT, same API)
 
 ---
 
 ## Roadmap
 
-### v1.2.x (Current)
-- ✅ Advanced thermal models
-- ✅ NiMH & Alkaline support
+### v1.3.x (Current)
+- ✅ detectChargeState() FLOAT fix (compatibilité BatteryKalman v1.5.3)
 - Monitor user feedback on thermal accuracy
 
-### v1.3.0 (Possible, 2027+)
+### v1.4.0 (Possible, 2027+)
 - [ ] LCO (Lithium Cobalt) legacy support
 - [ ] NiZn (Nickel-Zinc) niche support
 - [ ] Supercapacitor extension (new architecture)
 
-### v1.4.0 (Future, 2028+)
+### v1.5.0 (Future, 2028+)
 - [ ] Solid-State Lithium (when commercial products exist)
 - [ ] K-Ion (Potassium-Ion, if adoption rises)
 
@@ -212,6 +255,6 @@ bool isRechargeable() const;
 
 ---
 
-**Last Updated**: 2026-07-19  
-**Current Version**: 1.2.0  
+**Last Updated**: 2026-08-03  
+**Current Version**: 1.3.0  
 **License**: GNU General Public License v3.0

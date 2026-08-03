@@ -4,10 +4,17 @@
 [![PlatformIO](https://img.shields.io/badge/PlatformIO-Compatible-orange)](https://platformio.org/)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![GitHub release](https://img.shields.io/github/v/release/Fo170/BatteryModels)](https://github.com/Fo170/BatteryModels/releases)
-[![Version](https://img.shields.io/badge/Version-1.2.0--advanced--thermal-brightgreen.svg)](https://github.com/Fo170/BatteryModels/releases)
+[![Version](https://img.shields.io/badge/Version-1.3.0-brightgreen.svg)](https://github.com/Fo170/BatteryModels/releases)
 
 Bibliothèque complète de modèles paramétriques pour batteries, incluant tables OCV (Open Circuit Voltage), modèle Thévenin dynamique, et **modèles thermiques avancés (Arrhenius exponentiel)** pour 15 technologies différentes. **Header-only**, **PROGMEM-ready** pour AVR, et **cross-platform** (ESP32, ARM, etc.).
 
+> **🐛 v1.3.0 - CORRECTION DETECTCHARGESTATE (FLOAT)**  
+> Le test `near_float` passe désormais **avant** `in_rest` dans `detectChargeState()`.  
+> Une batterie en float avec un courant < 0,05 A est classée `State_FLOAT` (et non plus `State_REST`),  
+> restaurant le point de référence « batterie pleine » (SoC = 100 %) pour BatteryKalman.  
+> ✅ **100% backward compatible** — aucun changement d'API.  
+> Voir [`CHANGELOG.md`](CHANGELOG.md).
+>
 > **✨ v1.2.0 - MODÈLES THERMIQUES AVANCÉS**  
 > Cette version ajoute des modèles thermiques non-linéaires (Arrhenius, RC thermique, OCV quadratique).  
 > **Précision améliorée ±1.4% SoC** (vs ±3.4% avant) sur -30 à +80°C.  
@@ -70,12 +77,19 @@ Bibliothèque complète de modèles paramétriques pour batteries, incluant tabl
 | State_REST | Repos (courant < 0.05A) |
 | State_REST_LONG | Repos long (>2h) |
 
+> **🐛 v1.3.0** : ordre de priorité corrigé dans `detectChargeState()` —
+> `near_float` est testé **avant** `in_rest`. Une batterie maintenue en float
+> (courant < 0,05 A) est désormais classée `State_FLOAT` et non plus
+> `State_REST`, ce qui restaure le point de référence « batterie pleine »
+> (SoC = 100 %) pour BatteryKalman. L'ordre est : DISCHARGE → FLOAT → REST →
+> ABSORPTION → BULK.
+
 ## 🚀 Installation
 
 ### Via Arduino Library Manager (Recommended) ⭐
 1. Arduino IDE : `Croquis > Inclure une bibliothèque > Gérer les bibliothèques`
 2. Recherchez `BatteryModels`
-3. Installez la dernière version (1.2.0+)
+3. Installez la dernière version (1.3.0+)
 
 ### Via Arduino IDE (Manual ZIP)
 1. Téléchargez le ZIP depuis [Latest Release](https://github.com/Fo170/BatteryModels/releases)
@@ -84,10 +98,10 @@ Bibliothèque complète de modèles paramétriques pour batteries, incluant tabl
 ### Via PlatformIO (Recommended) ⭐
 Ajoutez à votre `platformio.ini` :
 
-**Pour v1.2.0 (stable):**
+**Pour v1.3.0 (stable):**
 ```ini
 lib_deps =
-    https://github.com/Fo170/BatteryModels.git@^1.2.0
+    https://github.com/Fo170/BatteryModels.git@^1.3.0
 ```
 
 **Ou via le registry:**
@@ -104,12 +118,13 @@ lib_deps =
 
 ### Compatibilité avec BatteryKalman
 
-Cette bibliothèque est **totalement compatible** avec [BatteryKalman](https://github.com/Fo170/BatteryKalman) pour une estimation optimale du SoC.
+Cette bibliothèque est **totalement compatible** avec [BatteryKalman](https://github.com/Fo170/BatteryKalman) (v1.5.3+) pour une estimation optimale du SoC.
 
 **Avantages de la combinaison**:
 - **BatteryModels** fournit le modèle physique précis de la batterie (OCV, Thévenin avancé, thermique)
 - **BatteryKalman** fusionne plusieurs estimations (OCV, Coulomb, Arrhenius) via un filtre de Kalman adaptatif
 - Résultat : **±0.8% erreur SoC** sur -30 à +80°C (vs ±1.4% seul BatteryModels)
+- **v1.3.0** : la correction de `detectChargeState()` (test `near_float` avant `in_rest`) restaure la détection `State_FLOAT` — point de référence « batterie pleine » (SoC = 100 %) indispensable à l'apprentissage de capacité de BatteryKalman (intégrée dans BatteryKalman v1.5.3)
 
 **Utilisation combinée** (exemple):
 ```cpp
