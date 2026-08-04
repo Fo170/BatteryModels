@@ -2,7 +2,7 @@
 #define BATTERY_MODELS_H
 
 /*
-  BatteryModels v1.4.0 - Modèles paramétriques avancés pour batteries
+  BatteryModels v1.5.0 - Modèles paramétriques avancés pour batteries
 
   🔗 COMPATIBILITÉ : Cette bibliothèque est entièrement compatible avec BatteryKalman
   (https://github.com/Fo170/BatteryKalman) pour une fusion optimale d'estimations SoC
@@ -94,7 +94,11 @@ enum BatteryTech : uint8_t {
     TECH_SODIUM  = 12,
     TECH_NIMH    = 13,
     TECH_ALKALINE = 14,
-    TECH_COUNT   = 15
+    TECH_LCO     = 15,   // LiCoO2 (Cobalt) - legacy smartphones/tablets
+    TECH_NIZN    = 16,   // Nickel-Zinc (NiZn) - RC / amateur radio
+    TECH_NICD    = 17,   // Nickel-Cadmium (NiCd) - legacy outils/RC
+    TECH_PBC     = 18,   // Plomb-Carbone (PbC) - stop-start auto
+    TECH_COUNT   = 19
 };
 
 // ============================================================
@@ -115,12 +119,17 @@ static const char TECH_NAME_11[] BATT_PROGMEM = "Nickel-Fer (NiFe/Edison)";
 static const char TECH_NAME_12[] BATT_PROGMEM = "Sodium-Ion (Na-ion)";
 static const char TECH_NAME_13[] BATT_PROGMEM = "Nickel-Metal Hydride (NiMH)";
 static const char TECH_NAME_14[] BATT_PROGMEM = "Alkaline (Primary)";
+static const char TECH_NAME_15[] BATT_PROGMEM = "Li-Cobalt (LCO)";
+static const char TECH_NAME_16[] BATT_PROGMEM = "Nickel-Zinc (NiZn)";
+static const char TECH_NAME_17[] BATT_PROGMEM = "Nickel-Cadmium (NiCd)";
+static const char TECH_NAME_18[] BATT_PROGMEM = "Plomb-Carbone (PbC)";
 
 static const char* const TECH_NAMES[TECH_COUNT] BATT_PROGMEM = {
     TECH_NAME_0, TECH_NAME_1, TECH_NAME_2, TECH_NAME_3,
     TECH_NAME_4, TECH_NAME_5, TECH_NAME_6, TECH_NAME_7,
     TECH_NAME_8, TECH_NAME_9, TECH_NAME_10, TECH_NAME_11, TECH_NAME_12,
-    TECH_NAME_13, TECH_NAME_14
+    TECH_NAME_13, TECH_NAME_14, TECH_NAME_15, TECH_NAME_16,
+    TECH_NAME_17, TECH_NAME_18
 };
 
 // ============================================================
@@ -356,6 +365,19 @@ static const float OCV_SODIUM[9][2] BATT_PROGMEM = {
     {2.00f,   0.0f},
 };
 
+// Li-Cobalt (LCO) - 3.7V nominal/cell (LiCoO2, legacy phones/tablets)
+static const float OCV_LCO[9][2] BATT_PROGMEM = {
+    {4.200f, 100.0f},
+    {4.100f,  95.0f},
+    {3.950f,  85.0f},
+    {3.880f,  70.0f},
+    {3.820f,  50.0f},
+    {3.750f,  30.0f},
+    {3.650f,  15.0f},
+    {3.450f,   5.0f},
+    {3.000f,   0.0f},
+};
+
 // ============================================================
 // PARAMETRES PAR TECHNOLOGIE EN PROGMEM
 // ============================================================
@@ -545,6 +567,54 @@ static const TechParams TECH_PARAMS[TECH_COUNT] BATT_PROGMEM = {
          0.20f, 1.0f, {4.0f, 6.0f, 8.0f}, 15.0f, true,
          0.30f, 3, 15.0f, 0.030f, 30.0f, 6, 32,
          0.95f, 0.70f, 0.15f, 0.3f, 0.6f}  // kalman (décharge seule, seuil ΔAh relatif 1%)
+    },
+    // TECH_LCO (15) - Li-Cobalt (LiCoO2) - legacy smartphones/tablets
+    {
+        {-0.800000f, 2.000000f, 3.000000f},
+        4.0f, 0.004f, 0.3f, 0.8f, 0.5f, 2.0f, 1.02f, -0.0003f,
+        4.10f, 4.20f, 3.00f, 4.20f, 7.0f, true,
+        1800.0f, 0.009f, -3e-6f, // E_a_R, alpha_tau, d2Vocv_dT2
+        {0.05f, 0.6f, 0.02f, 0.015f, 0.1f, 0.5f, 0.8f},  // detect
+        {200.0f, 0.10f, 1e-6f, 1e-7f, 2e-6f, 0.005f, 3.0f, 0.5f, 100.0f, 0.1f,
+         0.20f, 0.5f, {2.0f, 3.0f, 5.0f}, 15.0f, true,
+         0.30f, 3, 15.0f, 0.020f, 30.0f, 6, 32,
+         0.95f, 0.70f, 0.15f, 0.3f, 0.6f}  // kalman
+    },
+    // TECH_NIZN (16) - Nickel-Zinc (NiZn) - RC / amateur radio
+    {
+        {-0.150000f, 0.850000f, 1.100000f},
+        5.0f, 0.006f, 0.4f, 1.0f, 0.6f, 2.5f, 1.10f, -0.0004f,
+        1.75f, 1.85f, 1.20f, 1.90f, 7.0f, true,
+        2200.0f, 0.02f, -3e-6f, // E_a_R, alpha_tau, d2Vocv_dT2
+        {0.05f, 0.6f, 0.02f, 0.015f, 0.1f, 1.0f, 0.8f},  // detect
+        {400.0f, 0.10f, 1e-6f, 1e-7f, 2e-6f, 0.015f, 6.0f, 0.5f, 100.0f, 0.1f,
+         0.20f, 1.0f, {4.0f, 6.0f, 8.0f}, 15.0f, true,
+         0.30f, 3, 15.0f, 0.030f, 30.0f, 6, 32,
+         0.95f, 0.70f, 0.15f, 0.3f, 0.6f}  // kalman
+    },
+    // TECH_NICD (17) - Nickel-Cadmium (NiCd) - legacy outils/RC
+    {
+        {-0.200000f, 0.570000f, 1.050000f},
+        6.0f, 0.008f, 0.4f, 1.5f, 0.8f, 3.0f, 1.30f, -0.0005f,
+        1.40f, 1.45f, 1.00f, 1.55f, 9.0f, true,
+        2500.0f, 0.03f, -3e-6f, // E_a_R, alpha_tau, d2Vocv_dT2
+        {0.05f, 0.6f, 0.02f, 0.015f, 0.1f, 1.0f, 0.8f},  // detect
+        {400.0f, 0.10f, 1e-6f, 1e-7f, 2e-6f, 0.015f, 6.0f, 0.5f, 100.0f, 0.1f,
+         0.20f, 1.0f, {4.0f, 6.0f, 8.0f}, 15.0f, true,
+         0.30f, 3, 15.0f, 0.030f, 30.0f, 6, 32,
+         0.95f, 0.70f, 0.15f, 0.3f, 0.6f}  // kalman
+    },
+    // TECH_PBC (18) - Plomb-Carbone (PbC) - stop-start auto
+    {
+        {-0.005000f, 0.140000f, 1.975000f},
+        8.0f, 0.012f, 0.5f, 2.0f, 1.0f, 3.0f, 1.20f, -0.0037f,
+        2.37f, 2.45f, 1.75f, 2.50f, 15.0f, true,
+        3400.0f, 0.035f, -7e-6f, // E_a_R, alpha_tau, d2Vocv_dT2
+        {0.05f, 0.6f, 0.02f, 0.015f, 0.1f, 1.0f, 0.8f},  // detect
+        {600.0f, 0.10f, 1e-6f, 1e-7f, 2e-6f, 0.030f, 6.0f, 0.5f, 100.0f, 0.1f,
+         0.20f, 0.5f, {3.0f, 5.0f, 8.0f}, 15.0f, true,
+         0.30f, 3, 15.0f, 0.030f, 30.0f, 6, 32,
+         0.95f, 0.70f, 0.15f, 0.3f, 0.6f}  // kalman
     },
 };
 
@@ -821,6 +891,10 @@ public:
             case TECH_SODIUM:  return 3.0f * n_cells;
             case TECH_NIMH:    return 1.2f * n_cells;
             case TECH_ALKALINE: return 1.5f * n_cells;
+            case TECH_LCO:     return 3.7f * n_cells;
+            case TECH_NIZN:    return 1.6f * n_cells;
+            case TECH_NICD:    return 1.2f * n_cells;
+            case TECH_PBC:     return 2.0f * n_cells;
             default:           return 2.0f * n_cells;
         }
     }
@@ -865,6 +939,8 @@ public:
                 return interpolateTable(OCV_NCA, 9, V_cell);
             case TECH_SODIUM:
                 return interpolateTable(OCV_SODIUM, 9, V_cell);
+            case TECH_LCO:
+                return interpolateTable(OCV_LCO, 9, V_cell);
             default:
                 return soc_from_ocv_poly(getParams().ocv, V_cell);
         }
@@ -899,6 +975,9 @@ public:
                 break;
             case TECH_SODIUM:
                 V_cell = interpolateTableInverse(OCV_SODIUM, 9, soc);
+                break;
+            case TECH_LCO:
+                V_cell = interpolateTableInverse(OCV_LCO, 9, soc);
                 break;
             default:
                 V_cell = ocv_from_soc_poly(getParams().ocv, soc);
@@ -1081,6 +1160,7 @@ public:
             case TECH_AGM:
             case TECH_GEL:
             case TECH_NIFE:
+            case TECH_PBC:
                 return C_nominal / 20.0f;
             default:
                 return C_nominal;

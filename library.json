@@ -1,7 +1,7 @@
 {
   "name": "BatteryModels",
-  "version": "1.4.0",
-  "description": "Bibliothèque complète de modèles pour batteries (15 technologies) avec Thévenin dynamique et modèles thermiques avancés (Arrhenius exponentiel, RC thermique, OCV polynomial). v1.4.0: seuils de détection (DetectionConfig) et réglages Kalman (KalmanTuning) configurables PAR TECHNOLOGIE — surcharge compile-time (macros BATTERYMODELS_*) et runtime (setters). Supportées: Plomb, Lithium, NiFe, Sodium-Ion, NiMH, Alkaline. Précision ±1.4% SoC (-30 à +80°C).",
+  "version": "1.5.0",
+  "description": "Bibliothèque complète de modèles pour batteries (19 technologies) avec Thévenin dynamique et modèles thermiques avancés (Arrhenius exponentiel, RC thermique, OCV polynomial). v1.5.0: ajout LCO (Li-Cobalt), NiZn, NiCd, PbC (Plomb-Carbone). v1.4.0: seuils de détection (DetectionConfig) et réglages Kalman (KalmanTuning) configurables PAR TECHNOLOGIE — surcharge compile-time (macros BATTERYMODELS_*) et runtime (setters). Supportées: Plomb, Lithium, NiFe, Sodium-Ion, NiMH, Alkaline, NiCd, NiZn, LCO, PbC. Précision ±1.4% SoC (-30 à +80°C).",
   "keywords": [
     "battery",
     "battery-model",
@@ -22,6 +22,10 @@
     "na-ion",
     "nimh",
     "alkaline",
+    "lco",
+    "nicd",
+    "nizn",
+    "lead-carbon",
     "plomb",
     "agm",
     "gel",

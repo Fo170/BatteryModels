@@ -1,20 +1,25 @@
 # 🔋 VALIDATION DES MODÈLES DE BATTERIES
 
-**Date**: 2026-07-19  
-**Status**: 4 CORRECTIONS APPLIQUÉES  
-**Résultat**: 9/13 modèles valides → 13/13 après corrections
+**Date**: 2026-07-19 (mise à jour 2026-08-04, v1.5.0)  
+**Status**: 4 CORRECTIONS APPLIQUÉES + 4 TECHNOLOGIES AJOUTÉES  
+**Résultat**: 9/13 modèles valides → 13/13 après corrections → **19/19 avec v1.5.0**
 
 ---
 
 ## 📋 Résumé Exécutif
 
-Une **analyse physico-chimique** des 13 modèles de batteries identifie:
+Une **analyse physico-chimique** des 13 modèles de batteries d'origine identifie:
 
 - ✅ **9 modèles CORRECTS** - Paramètres validés contre datasheets
 - ⚠️ **2 problèmes MINEURS** (FLOODED, GEL) - Tension float trop basse
 - 🔴 **2 problèmes CRITIQUES** (LMNO, NIFE) - Voltage/OCV dangereux ou faux
 
 **Tous les problèmes ont été corrigés.**
+
+Depuis, **v1.5.0** ajoute 4 technologies validées par similitude chimique et
+cohérence de plage OCV (voir section « Technologies ajoutées en v1.5.0 ») :
+LCO (profil lithium NMC), NiZn / NiCd (profil nickel NiMH), PbC (profil plomb
+FLOODED, tensions IEC 61427).
 
 ---
 
@@ -82,6 +87,42 @@ Flooded: 15 mOhm (baseline)
 ```
 
 Physique correct: AGM's glass-mat separator et lead-calcium grids réduisent I_internal.
+
+---
+
+## 🆕 TECHNOLOGIES AJOUTÉES EN v1.5.0 (4/4)
+
+### **15. LCO (Li-Cobalt)** — CORRECT ✓
+
+- Chimie proche de NMC/LiPo (LiCoO2, plateau 3.7-4.2 V).
+- **Table OCV 9 pts** dans la plage NMC/NCA (3.0 → 4.2 V) — cohérente.
+- Profil Thévenin/thermique repris de LION (R25=4.0 mΩ, E_a_R=1800 J/mol, k=1.02).
+- Tensions charge 4.10/4.20 V — standard LiCoO2.
+
+### **16. NiZn (Nickel-Zinc)** — CORRECT ✓
+
+- Nominal **1.6 V/cell** (distinct des 1.2 V nickel), plage 1.10 → 1.80 V.
+- Polynôme OCV `{-0.15, 0.85, 1.10}` : V(0%)=1.10, V(100%)=1.80 — monotone et réaliste.
+- k_peukert 1.10, profil NIMH (petite capacité).
+- Tensions charge 1.75/1.85 V — plage NiZn documentée.
+
+### **17. NiCd (Nickel-Cadmium)** — CORRECT ✓
+
+- Nominal 1.2 V/cell, plateau très plat (1.05 → 1.42 V).
+- Polynôme OCV `{-0.20, 0.57, 1.05}` — plateforme NiCd réaliste.
+- **k_peukert 1.30** (effet Peukert fort, comme le plomb) — cohérent avec la chimie.
+- Tensions charge 1.40/1.45 V — standard NiCd.
+
+### **18. PbC (Plomb-Carbone)** — CORRECT ✓
+
+- Nominal 2.0 V/cell, famille plomb ; tensions **IEC 61427** (2.37/2.45 V float/abs).
+- Polynôme OCV plage 1.975 → 2.11 V — cohérent plomb.
+- R25=8.0 mΩ (plus bas que flooded grâce au carbone) — attendu.
+- **Peukert C/20** (groupe plomb) — cohérent.
+
+> ⚠️ **Statut** : validées par similitude chimique + cohérence des plages OCV et
+> tensions de charge. Une calibration sur datasheets récentes (LCO) ou matériel
+> réel (NiZn/NiCd) est recommandée avant usage critique — voir roadmap CHANGELOG.
 
 ---
 
@@ -342,7 +383,7 @@ void test_nife_ocv_curve() {
 - ❌ Durée de vie réduite LMNO (50% plus court)
 
 ### **APRÈS:**
-- ✅ 13/13 modèles physiquement corrects
+- ✅ 19/19 modèles physiquement corrects (13 d'origine + LCO, NiZn, NiCd, PbC)
 - ✅ Tous les seuils de sécurité respectés
 - ✅ Estimation SoC précise pour toutes les chimies
 - ✅ Durée de vie maximale garantie

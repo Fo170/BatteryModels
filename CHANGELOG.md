@@ -4,6 +4,39 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.5.0] - 2026-08-04 - Expansion technologique (LCO, NiZn, NiCd, PbC)
+
+### ✨ Added
+
+- **4 nouvelles technologies** (appendice d'enum, index 15-18, `TECH_COUNT` 15 → 19) :
+  - **TECH_LCO (15)** — Li-Cobalt (LiCoO2), 3.7 V/cell, legacy smartphones/tablets. **Table OCV 9 pts** `OCV_LCO[9][2]`, profil Thévenin/thermique = LION.
+  - **TECH_NIZN (16)** — Nickel-Zinc, 1.6 V/cell, RC / amateur radio. Polynôme OCV `{-0.15, 0.85, 1.10}`, profil = NIMH.
+  - **TECH_NICD (17)** — Nickel-Cadmium, 1.2 V/cell, legacy outils/RC. Polynôme OCV `{-0.20, 0.57, 1.05}`, k_peukert 1.30, profil = NIMH.
+  - **TECH_PBC (18)** — Plomb-Carbone, 2.0 V/cell, stop-start auto. Polynôme OCV, profil = FLOODED, **groupe Peukert C/20**.
+- Chaque entrée fournit ses blocs v1.4.0 `detect` + `kalman` (reprise du profil chimique de référence).
+
+### 🔄 Changed
+
+- `ocvToSoc()` / `socToOcv()` : `case TECH_LCO:` → `interpolateTable(OCV_LCO, 9, …)` ; les 3 autres technos passent par le polynôme (`default`).
+- `getNominalVoltage()` : cases LCO (3.7 V), NIZN (1.6 V), NICD (1.2 V), PBC (2.0 V).
+- `getPeukertReferenceRate()` : `TECH_PBC` ajouté au groupe C/20 (plomb).
+- `TECH_NAMES[]` : 4 noms ajoutés (« Li-Cobalt (LCO) », « Nickel-Zinc (NiZn) », « Nickel-Cadmium (NiCd) », « Plomb-Carbone (PbC) »).
+- `BatteryModels.h` : commentaire de version → v1.5.0.
+- `library.json` : version → 1.5.0, description + keywords (lco, nicd, nizn, lead-carbon).
+- `README.md` : badge v1.5.0, banner, tableau 19 types, installation `@^1.5.0`.
+- `TECHNOLOGY_EXPANSION.md` : section v1.5.0 (couverture 15 → 19).
+
+### ✅ Backward Compatibility
+
+- **100% compatible** avec v1.4.0 — API **additive uniquement** : les nouvelles valeurs d'enum sont ajoutées en fin de liste (aucun ID ré-indexé), aucune signature modifiée.
+
+### 🧪 Validation
+
+- `g++ -fsyntax-only` avec mock `Arduino.h` : header + 4 exemples OK.
+- Tests fonctionnels (19 assertions) : `TECH_COUNT==19`, OCV plein/mi/vide LCO (table) + NiZn/NiCd/PbC (polynôme), tensions nominales, `isRechargeable()`, Peukert C/20 PbC, `socToOcv()` inverse.
+
+---
+
 ## [1.4.0] - 2026-08-04 - Configuration par technologie (DetectionConfig + KalmanTuning)
 
 ### ✨ Added
@@ -336,21 +369,22 @@ Range: 0.9V (dead) → 1.55V (fresh)
 - **1.2.0**: Enhancement (thermal models, new API methods)
 - **1.3.0**: Bug fix (detectChargeState FLOAT, same API)
 - **1.4.0**: Configuration par technologie (DetectionConfig + KalmanTuning)
+- **1.5.0**: Expansion technologique (LCO, NiZn, NiCd, PbC)
 
 ---
 
 ## Roadmap
 
-### v1.4.0 (Current)
-- ✅ Configuration par technologie (DetectionConfig + KalmanTuning) — compatibilité BatteryKalman v1.6.0
+### v1.5.0 (Current)
+- ✅ Expansion technologique (LCO, NiZn, NiCd, PbC)
 - Monitor user feedback on thermal accuracy
 
-### v1.5.0 (Possible, 2027+)
-- [ ] LCO (Lithium Cobalt) legacy support
-- [ ] NiZn (Nickel-Zinc) niche support
+### v1.6.0 (Possible, 2027+)
+- [ ] LCO table OCV recalée sur datasheets récentes
+- [ ] NiZn / NiCd validation sur matériel réel
 - [ ] Supercapacitor extension (new architecture)
 
-### v1.6.0 (Future, 2028+)
+### v1.7.0 (Future, 2028+)
 - [ ] Solid-State Lithium (when commercial products exist)
 - [ ] K-Ion (Potassium-Ion, if adoption rises)
 
@@ -362,5 +396,5 @@ Range: 0.9V (dead) → 1.55V (fresh)
 ---
 
 **Last Updated**: 2026-08-04  
-**Current Version**: 1.4.0  
+**Current Version**: 1.5.0  
 **License**: GNU General Public License v3.0

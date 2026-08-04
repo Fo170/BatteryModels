@@ -1,9 +1,12 @@
-# 🔋 EXPANSION TECHNOLOGIE - v1.1.0
+# 🔋 EXPANSION TECHNOLOGIE - BatteryModels
 
-**Date**: 2026-07-19  
+Historique des expansions de technologies : **v1.1.0** (NiMH, Alkaline) puis **v1.5.0** (LCO, NiZn, NiCd, PbC).
+
+**Date**: 2026-07-19 (mise à jour 2026-08-04)  
 **Status**: ✅ IMPLÉMENTÉ  
-**Nouvelles technos**: 2 (NiMH, Alkaline)  
-**Technos totales**: 15/15
+**Nouvelles technos (v1.1.0)**: 2 (NiMH, Alkaline)  
+**Nouvelles technos (v1.5.0)**: 4 (LCO, NiZn, NiCd, PbC)  
+**Technos totales**: 19/19
 
 ---
 
@@ -318,7 +321,7 @@ Updated files:
 
 ---
 
-## 🎯 RESULT
+## 🎯 RESULT (v1.1.0)
 
 **Coverage**: 95% → 99.5%+ Arduino projects  
 **New technologies**: NiMH (rechargeable) + Alkaline (primary)  
@@ -329,6 +332,213 @@ Updated files:
 
 ---
 
-**Version**: v1.1.0  
+# PARTIE v1.5.0 — Expansion LCO / NiZn / NiCd / PbC
+
+**Date**: 2026-08-04  
+**Status**: ✅ IMPLÉMENTÉ ET PUBLIÉ  
+**Nouvelles technos**: 4 (LCO, NiZn, NiCd, PbC)  
+**Technos totales**: 19/19
+
+---
+
+## 📊 RÉSUMÉ DE L'EXPANSION
+
+```
+Avant (v1.4.0):        15 technos
+  ├─ Lithium:  LFP, Li-Ion, LiPo, LTO, LMNO, NMC, NCA (7)
+  ├─ Plomb:    Flooded, AGM, Gel (3)
+  ├─ Nickel:   NiFe, NiMH (2)
+  ├─ Sodium:   Na-Ion (1)
+  └─ Divers:   Alkaline (1) + Unknown (1)
+
+Après (v1.5.0):        19 technos
+  + Li-Cobalt (LCO)          → Lithium: 8
+  + Nickel-Zinc (NiZn)       → Nickel: 4
+  + Nickel-Cadmium (NiCd)    → Nickel: 5
+  + Plomb-Carbone (PbC)      → Plomb: 4
+```
+
+---
+
+## 🆕 NOUVELLES TECHNOLOGIES AJOUTÉES
+
+### 1. TECH_LCO (Index 15) - Li-Cobalt (LiCoO2)
+
+**Statut**: ✅ RECHARGEABLE — legacy smartphones/tablets
+
+**Propriétés**:
+```
+Nominal voltage:    3.7V per cell
+Voltage range:      3.0V (empty) - 4.2V (full)
+Table OCV:          OCV_LCO[9][2] (interpolation linéaire)
+```
+
+**Paramètres Thévenin**:
+```
+R25 (mOhm):        4.0     (faible résistance)
+beta_temp:         0.004   (faible dépendance T)
+gamma_soc:         0.3     (faible dépendance SoC)
+k_peukert:         1.02    (effet Peukert quasi nul)
+R_soc_max:         7.0
+V_float / V_abs:   4.10 / 4.20 V par cellule
+```
+
+**Profil de référence**: LION (blocs `detect` + `kalman` repris).
+
+**Pourquoi ajoutée**:
+- 🟢 **Extrêmement commune** dans les batteries legacy (phones, tablettes, power banks)
+- 🟢 Chimie proche de LiPo/NMC, données OCV bien documentées
+
+---
+
+### 2. TECH_NIZN (Index 16) - Nickel-Zinc
+
+**Statut**: ✅ RECHARGEABLE — RC / amateur radio
+
+**Propriétés**:
+```
+Nominal voltage:    1.6V per cell (plus haut que NiCd/NiMH)
+Voltage range:      1.10V (empty) - 1.80V (full)
+Modèle OCV:         Polynôme {-0.15, 0.85, 1.10}
+```
+
+**Paramètres Thévenin**:
+```
+R25 (mOhm):        5.0     (résistance modérée)
+beta_temp:         0.006   (dépendance T faible à modérée)
+gamma_soc:         0.4
+k_peukert:         1.10    (effet modéré)
+R_soc_max:         7.0
+V_float / V_abs:   1.75 / 1.85 V par cellule
+```
+
+**Profil de référence**: NIMH (petite capacité → seuil ΔAh relatif 1%).
+
+**Pourquoi ajoutée**:
+- 🟢 Alternative moderne au NiCd dans le RC (pas de mémoire, plus écolo)
+- 🟢 Tension nominale 1.6V distincte des autres nickel
+
+---
+
+### 3. TECH_NICD (Index 17) - Nickel-Cadmium
+
+**Statut**: ✅ RECHARGEABLE — legacy outils sans fil / RC
+
+**Propriétés**:
+```
+Nominal voltage:    1.2V per cell
+Voltage range:      1.05V (empty) - 1.42V (full)
+Modèle OCV:         Polynôme {-0.20, 0.57, 1.05} (plateau très plat)
+```
+
+**Paramètres Thévenin**:
+```
+R25 (mOhm):        6.0
+beta_temp:         0.008   (dépendance T modérée)
+gamma_soc:         0.4
+k_peukert:         1.30    (effet Peukert FORT, comme le plomb)
+R_soc_max:         9.0
+V_float / V_abs:   1.40 / 1.45 V par cellule
+```
+
+**Profil de référence**: NIMH.
+
+**Pourquoi ajoutée**:
+- 🟢 Nombreux outils/RC legacy encore en service malgré la fin de commercialisation UE (2006)
+- 🟢 Complète la couverture nickel (NiFe, NiMH, NiZn, NiCd)
+
+---
+
+### 4. TECH_PBC (Index 18) - Plomb-Carbone
+
+**Statut**: ✅ RECHARGEABLE — stop-start automobile
+
+**Propriétés**:
+```
+Nominal voltage:    2.0V per cell
+Voltage range:      1.975V (empty) - 2.11V (full)
+Modèle OCV:         Polynôme {-0.005, 0.140, 1.975}
+```
+
+**Paramètres Thévenin**:
+```
+R25 (mOhm):        8.0     (plus bas que flooded grâce au carbone)
+beta_temp:         0.012   (sensible à T, famille plomb)
+gamma_soc:         0.5
+k_peukert:         1.20
+R_soc_max:         15.0
+V_float / V_abs:   2.37 / 2.45 V par cellule (IEC 61427)
+```
+
+**Profil de référence**: FLOODED (blocs `detect` + `kalman` repris).  
+**Peukert**: groupe **C/20** (famille plomb) dans `getPeukertReferenceRate()`.
+
+**Pourquoi ajoutée**:
+- 🟢 Adoption massive dans le stop-start automobile
+- 🟢 Meilleure tolérance au PSoC (Partial State of Charge) que le plomb classique
+
+---
+
+## 📈 COUVERTURE MISE À JOUR
+
+| Famille | v1.1.0 | v1.5.0 | Gap |
+|---------|--------|--------|-----|
+| **Lead-Acid** | 3 | 4 (+PbC) | ✅ |
+| **Lithium** | 7 | 8 (+LCO) | ✅ |
+| **Nickel** | 2 | 5 (+NiZn, +NiCd, NiFe, NiMH) | ✅ |
+| **Sodium** | 1 | 1 | — |
+| **Divers/Primary** | 1 + Unknown | 1 + Unknown | — |
+| **TOTAL** | 15 | **19** | ✅ +4 |
+
+---
+
+## 🧪 TESTING RECOMMENDATIONS
+
+```cpp
+// LCO: table OCV
+BatteryModel lco(TECH_LCO, 1, 2.0f, 4.0f);
+assert(lco.ocvToSoc(4.20f, 25.0f) > 95.0f);   // plein
+assert(lco.ocvToSoc(3.82f, 25.0f) - 50.0f < 2.0f); // mi
+assert(lco.ocvToSoc(3.00f, 25.0f) < 2.0f);    // vide
+
+// NiZn / NiCd / PbC: polynôme
+BatteryModel nizn(TECH_NIZN, 1, 2.0f, 5.0f);
+assert(nizn.ocvToSoc(1.80f, 25.0f) > 95.0f);
+assert(nizn.ocvToSoc(1.10f, 25.0f) < 2.0f);
+
+BatteryModel nicd(TECH_NICD, 1, 2.0f, 6.0f);
+assert(nicd.ocvToSoc(1.42f, 25.0f) > 95.0f);
+assert(nicd.ocvToSoc(1.05f, 25.0f) < 2.0f);
+
+BatteryModel pbc(TECH_PBC, 6, 60.0f, 8.0f);
+assert(pbc.getPeukertReferenceRate() == 60.0f / 20.0f);  // C/20
+assert(pbc.ocvToSoc(2.11f * 6.0f, 25.0f) > 95.0f);
+```
+
+---
+
+## ✅ IMPLEMENTATION CHECKLIST
+
+- [x] `enum BatteryTech` : LCO=15, NIZN=16, NICD=17, PBC=18, TECH_COUNT=19
+- [x] `TECH_NAMES[]` : 4 noms ajoutés
+- [x] `OCV_LCO[9][2]` : table lithium cobalt
+- [x] `TECH_PARAMS[]` : 4 entrées (Thévenin + thermique + detect + kalman)
+- [x] `ocvToSoc()` / `socToOcv()` : case LCO, les autres → polynôme
+- [x] `getNominalVoltage()` : 4 cases
+- [x] `getPeukertReferenceRate()` : PbC → C/20
+- [x] `library.json`, README, CHANGELOG, docs
+
+---
+
+## 🎯 RESULT (v1.5.0)
+
+**Coverage**: 15 → 19 technologies  
+**New technologies**: LCO, NiZn, NiCd, PbC  
+**Total techs supported**: 19/19  
+**Status**: ✅ **PRODUCTION READY**
+
+---
+
+**Version**: v1.5.0  
 **Git branch**: Ready for merge to `main`  
-**Breaking changes**: None (backward compatible)
+**Breaking changes**: None (backward compatible, enum additive)
