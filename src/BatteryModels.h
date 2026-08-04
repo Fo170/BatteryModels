@@ -2,7 +2,7 @@
 #define BATTERY_MODELS_H
 
 /*
-  BatteryModels v1.5.0 - Modèles paramétriques avancés pour batteries
+  BatteryModels v1.6.0 - Modèles paramétriques avancés pour batteries
 
   🔗 COMPATIBILITÉ : Cette bibliothèque est entièrement compatible avec BatteryKalman
   (https://github.com/Fo170/BatteryKalman) pour une fusion optimale d'estimations SoC
@@ -98,7 +98,8 @@ enum BatteryTech : uint8_t {
     TECH_NIZN    = 16,   // Nickel-Zinc (NiZn) - RC / amateur radio
     TECH_NICD    = 17,   // Nickel-Cadmium (NiCd) - legacy outils/RC
     TECH_PBC     = 18,   // Plomb-Carbone (PbC) - stop-start auto
-    TECH_COUNT   = 19
+    TECH_SUPERCAP = 19,  // Supercondensateur (EDLC) - tension lineaire
+    TECH_COUNT   = 20
 };
 
 // ============================================================
@@ -123,13 +124,14 @@ static const char TECH_NAME_15[] BATT_PROGMEM = "Li-Cobalt (LCO)";
 static const char TECH_NAME_16[] BATT_PROGMEM = "Nickel-Zinc (NiZn)";
 static const char TECH_NAME_17[] BATT_PROGMEM = "Nickel-Cadmium (NiCd)";
 static const char TECH_NAME_18[] BATT_PROGMEM = "Plomb-Carbone (PbC)";
+static const char TECH_NAME_19[] BATT_PROGMEM = "Supercondensateur (EDLC)";
 
 static const char* const TECH_NAMES[TECH_COUNT] BATT_PROGMEM = {
     TECH_NAME_0, TECH_NAME_1, TECH_NAME_2, TECH_NAME_3,
     TECH_NAME_4, TECH_NAME_5, TECH_NAME_6, TECH_NAME_7,
     TECH_NAME_8, TECH_NAME_9, TECH_NAME_10, TECH_NAME_11, TECH_NAME_12,
     TECH_NAME_13, TECH_NAME_14, TECH_NAME_15, TECH_NAME_16,
-    TECH_NAME_17, TECH_NAME_18
+    TECH_NAME_17, TECH_NAME_18, TECH_NAME_19
 };
 
 // ============================================================
@@ -616,6 +618,20 @@ static const TechParams TECH_PARAMS[TECH_COUNT] BATT_PROGMEM = {
          0.30f, 3, 15.0f, 0.030f, 30.0f, 6, 32,
          0.95f, 0.70f, 0.15f, 0.3f, 0.6f}  // kalman
     },
+    // TECH_SUPERCAP (19) - Supercondensateur (EDLC) - tension lineaire
+    // Pas de plateau OCV : SoC base energie (V²). ESR seule (pas de polarisation RC).
+    // V_max = tension nominale cellule (2.7V classique), V_min = 0.5 * V_max.
+    {
+        {0.0f, 0.0f, 0.0f},             // ocv poly inutilise (case dediee dans ocvToSoc)
+        5.0f, 0.003f, 0.0f, 0.0f, 0.0f, 0.0f, 1.00f, 0.0f,
+        2.70f, 2.70f, 1.35f, 2.70f, 0.0f, true,
+        0.0f, 0.0f, 0.0f, // E_a_R, alpha_tau, d2Vocv_dT2
+        {0.05f, 0.6f, 0.02f, 0.015f, 0.1f, 1.0f, 0.8f},  // detect
+        {600.0f, 0.10f, 1e-6f, 1e-7f, 2e-6f, 0.030f, 6.0f, 0.5f, 100.0f, 0.1f,
+         0.20f, 0.5f, {3.0f, 5.0f, 8.0f}, 15.0f, true,
+         0.30f, 3, 15.0f, 0.030f, 30.0f, 6, 32,
+         0.95f, 0.70f, 0.15f, 0.3f, 0.6f}  // kalman
+    },
 };
 
 // ============================================================
@@ -895,6 +911,7 @@ public:
             case TECH_NIZN:    return 1.6f * n_cells;
             case TECH_NICD:    return 1.2f * n_cells;
             case TECH_PBC:     return 2.0f * n_cells;
+            case TECH_SUPERCAP: return 2.0f * n_cells;  // ~0.75 * V_max (convention constructeurs)
             default:           return 2.0f * n_cells;
         }
     }
@@ -941,6 +958,14 @@ public:
                 return interpolateTable(OCV_SODIUM, 9, V_cell);
             case TECH_LCO:
                 return interpolateTable(OCV_LCO, 9, V_cell);
+            case TECH_SUPERCAP: {
+                // SoC base energie (convention Maxwell) : E = 0.5*C*(V²-Vmin²)
+                const TechParams& tp = getParams();
+                float vmin2 = tp.V_min_per_cell * tp.V_min_per_cell;
+                float vmax2 = tp.V_max_per_cell * tp.V_max_per_cell;
+                float soc = (V_cell * V_cell - vmin2) / (vmax2 - vmin2) * 100.0f;
+                return constrain(soc, 0.0f, 100.0f);
+            }
             default:
                 return soc_from_ocv_poly(getParams().ocv, V_cell);
         }
@@ -979,6 +1004,14 @@ public:
             case TECH_LCO:
                 V_cell = interpolateTableInverse(OCV_LCO, 9, soc);
                 break;
+            case TECH_SUPERCAP: {
+                // Inverse energie : V = sqrt(Vmin² + soc*(Vmax²-Vmin²))
+                const TechParams& tp = getParams();
+                float vmin2 = tp.V_min_per_cell * tp.V_min_per_cell;
+                float vmax2 = tp.V_max_per_cell * tp.V_max_per_cell;
+                V_cell = sqrtf(vmin2 + soc / 100.0f * (vmax2 - vmin2));
+                break;
+            }
             default:
                 V_cell = ocv_from_soc_poly(getParams().ocv, soc);
                 break;

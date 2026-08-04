@@ -1,7 +1,7 @@
 # 🔋 ANALYSE DE COUVERTURE DES TECHNOLOGIES DE BATTERIES
 
-**Date**: 2026-07-19 (mise à jour 2026-08-04, v1.5.0)  
-**Status**: v1.5.0 — 19 technologies implémentées  
+**Date**: 2026-07-19 (mise à jour 2026-08-04, v1.6.0)  
+**Status**: v1.6.0 — 20 technologies implémentées  
 **Analyse**: Complète (30+ technologies évaluées)
 
 ---
@@ -10,16 +10,16 @@
 
 | Métrique | Valeur | Interprétation |
 |----------|--------|-----------------|
-| **Technos implémentées** | 19/19 | 100% du scope déclaré ✓ |
-| **Technos couvertes (réaliste)** | 17/19 | 89% des cas d'usage Arduino |
+| **Technos implémentées** | 20/20 | 100% du scope déclaré ✓ |
+| **Technos couvertes (réaliste)** | 19/20 | 95% des cas d'usage Arduino |
 | **Technos manquantes critiques** | 0 | ✓ |
-| **Technos manquantes niche** | 11 | Supercap, Li-Sulfur, etc. |
+| **Technos manquantes niche** | 10 | Li-Sulfur, Solid-State, etc. |
 | **Technos non-recommandées** | 6 | Obsolète, théorique, grid-scale |
-| **Couverture pondérée** | 99% | Pour applications Arduino |
+| **Couverture pondérée** | 100% | Pour applications Arduino |
 
 ---
 
-## 📋 TECHNOLOGIES ACTUELLEMENT IMPLÉMENTÉES (19/19)
+## 📋 TECHNOLOGIES ACTUELLEMENT IMPLÉMENTÉES (20/20)
 
 ### ✅ Lead-Acid Family (4/4)
 ```
@@ -80,16 +80,16 @@ outillage, legacy industriel).
 
 ---
 
-### ✅ Other Technologies (1/5)
+### ✅ Other Technologies (2/5)
 ```
 ├─ Alkaline Primary (AA/AAA)      ✅ Full support (non-rechargeable)
-├─ Supercapacitor (EDLC)          ❌ Missing - MEDIUM PRIORITY
+├─ Supercapacitor (EDLC)          ✅ Full support (ajout v1.6.0, SoC énergie)
 ├─ Fuel Cells (H2, Methanol)      ❌ Missing (niche, unstable OCV)
 ├─ Flow Batteries                  ❌ Missing (grid-scale, incompatible)
 └─ Hybrid Supercap                 ❌ Missing (not standardized)
 ```
 
-**Couverture**: 20% - Alkaline couverte; supercap = nouvelle architecture.
+**Couverture**: 40% - Alkaline et Supercap couverts (les 2 seuls Arduino-Applicables).
 
 ---
 
@@ -97,19 +97,19 @@ outillage, legacy industriel).
 
 ```
 TOTAL TECHNOLOGIES CONNUES:     30 (toutes les chimies courantes)
-IMPLÉMENTÉES:                   19 (100% du scope v1.5.0)
-MANQUANTES:                     11
+IMPLÉMENTÉES:                   20 (100% du scope v1.6.0)
+MANQUANTES:                     10
 
 MANQUANTES PAR CATÉGORIE:
 ├─ Émergentes (futures):        3  (Solid-state, Li-Sulfur, K-Ion)
 ├─ Grid-scale (non-Arduino):    3  (Na-S, Flow, Al-Air)
-├─ Niche/Obsolète:              4  (Hybrid, Supercap, Li-Air, Zn-Air)
-└─ Arduino-Applicable:          1  🟡 MEDIUM (Supercapacitor)
+├─ Niche/Obsolète:              4  (Hybrid, Fuel Cells, Li-Air, Zn-Air)
+└─ Arduino-Applicable:          0  ✅ Fermé !
 
 PONDÉRÉ PAR ARDUINO RELEVANCE:
-├─ Production/Common:           19/19  ✅ 100% couvert
-├─ IoT/Embedded:                19/19  ✅ 100% couvert
-└─ Real-World Arduino:          ~99%   ✅ Excellent
+├─ Production/Common:           20/20  ✅ 100% couvert
+├─ IoT/Embedded:                20/20  ✅ 100% couvert
+└─ Real-World Arduino:          ~100%  ✅ Excellent
 ```
 
 ---
@@ -122,23 +122,22 @@ PONDÉRÉ PAR ARDUINO RELEVANCE:
 | Lithium | 8/8 (100%) | ✅ Excellent | LCO ajouté v1.5.0 |
 | Nickel | 4/4 (100%) | ✅ Excellent | NiZn + NiCd ajoutés v1.5.0 |
 | Sodium | 1/1 (100%) | ✅ OK | Grid-scale non-applicable |
-| Other | 1/5 (20%) | ⚠️ Supercap manquant | MEDIUM PRIORITY |
-| **TOTAL** | **19/30 (63%)** | ✅ **99% Arduino** | Excellent focus |
+| Other | 2/5 (40%) | ✅ Supercap + Alkaline | Uniquement les Arduino-Applicables |
+| **TOTAL** | **20/30 (67%)** | ✅ **100% Arduino** | Excellent focus |
 
 ---
 
 ## 🎯 RECOMMANDATIONS FINALES
 
-### ✅ Réalisé (v1.0 → v1.5.0)
+### ✅ Réalisé (v1.0 → v1.6.0)
 1. ✅ **NiMH** (v1.1) - Couverture +40%
 2. ✅ **Alkaline** (v1.1) - Couverture +30%
 3. ✅ **LCO, NiZn, NiCd, PbC** (v1.5.0) - Historique + niche
-4. ⏳ **Monitor Supercap** (futur) - Si demande IoT
+4. ✅ **Supercondensateur** (v1.6.0) - Seule « non-batterie » Arduino
 
 ### 📅 À Monitorer (Futur)
 1. 📅 **Solid-State Li** (2028+) - Quand commercial
 2. 📅 **K-Ion** (2027+) - Si adoption croissante
-3. 📅 **Supercapacitor** - Nouvelle architecture capacitive requise
 
 ### ❌ À Ignorer (Jamais)
 1. ❌ **Grid-Scale** (Flow, Na-S, Al-Air) - Pas Arduino
@@ -161,9 +160,9 @@ PONDÉRÉ PAR ARDUINO RELEVANCE:
 
 ---
 
-**Conclusion**: BatteryModels couvre désormais **19 technologies** (8 lithium,
-4 plomb, 4 nickel, sodium-ion, alkaline, unknown) — soit **99% des cas d'usage
-Arduino**. Les seuls gaps restants sont supercap (nouvelle architecture) et des
-chimies théoriques/grid-scale hors périmètre embarqué.
+**Conclusion**: BatteryModels couvre désormais **20 technologies** (8 lithium,
+4 plomb, 4 nickel, sodium-ion, alkaline, supercondensateur, unknown) — soit
+**100% des cas d'usage Arduino**. Les seuls gaps restants sont des chimies
+théoriques/grid-scale hors périmètre embarqué.
 
-**Status**: ✅ **PRODUCTION READY** (v1.5.0)
+**Status**: ✅ **PRODUCTION READY** (v1.6.0)

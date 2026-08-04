@@ -1,12 +1,13 @@
 # 🔋 EXPANSION TECHNOLOGIE - BatteryModels
 
-Historique des expansions de technologies : **v1.1.0** (NiMH, Alkaline) puis **v1.5.0** (LCO, NiZn, NiCd, PbC).
+Historique des expansions de technologies : **v1.1.0** (NiMH, Alkaline), **v1.5.0** (LCO, NiZn, NiCd, PbC) puis **v1.6.0** (Supercondensateur).
 
 **Date**: 2026-07-19 (mise à jour 2026-08-04)  
 **Status**: ✅ IMPLÉMENTÉ  
 **Nouvelles technos (v1.1.0)**: 2 (NiMH, Alkaline)  
 **Nouvelles technos (v1.5.0)**: 4 (LCO, NiZn, NiCd, PbC)  
-**Technos totales**: 19/19
+**Nouvelles technos (v1.6.0)**: 1 (Supercondensateur EDLC)  
+**Technos totales**: 20/20
 
 ---
 
@@ -265,17 +266,20 @@ void test_alkaline() {
 
 ---
 
-## 🚀 NEXT STEPS (v1.2+)
+## 🚀 NEXT STEPS (v1.6.0+)
 
-### **Optional additions** (if demand warrants):
-- [ ] **LCO** (Lithium Cobalt) - legacy smartphone batteries
-- [ ] **NiZn** (Nickel-Zinc) - niche amateur radio
-- [ ] **Supercapacitors** - requires new model architecture
+### **Optionnelles réalisées**:
+- [x] **Supercapacitors (EDLC)** — ajouté en **v1.6.0** (TECH_SUPERCAP)
+- [x] **LCO** (Li-Cobalt) — ajouté en **v1.5.0**
+- [x] **NiZn** (Nickel-Zinc) — ajouté en **v1.5.0**
+- [x] **NiCd** (Nickel-Cadmium) — ajouté en **v1.5.0**
+- [x] **PbC** (Plomb-Carbone) — ajouté en **v1.5.0**
 
 ### **Monitoring**:
-- [ ] User feedback on NiMH accuracy
-- [ ] Alkaline discharge curve validation on real hardware
-- [ ] Solid-state Li adoption (2028+)
+- [ ] Feedback utilisateurs sur la précision NiMH/alkaline
+- [ ] Validation courbes de décharge alkaline sur matériel réel
+- [ ] Validation supercap (ESR vs température) sur matériel réel
+- [ ] Adoption Solid-State Li (2028+)
 
 ---
 
@@ -540,5 +544,134 @@ assert(pbc.ocvToSoc(2.11f * 6.0f, 25.0f) > 95.0f);
 ---
 
 **Version**: v1.5.0  
+**Git branch**: Ready for merge to `main`  
+**Breaking changes**: None (backward compatible, enum additive)
+
+---
+
+# PARTIE v1.6.0 — Expansion Supercondensateur (EDLC)
+
+**Date**: 2026-08-04  
+**Status**: ✅ IMPLÉMENTÉ ET PUBLIÉ  
+**Nouvelles technos**: 1 (TECH_SUPERCAP)  
+**Technos totales**: 20/20
+
+---
+
+## 📊 RÉSUMÉ DE L'EXPANSION
+
+```
+Avant (v1.5.0):        19 technos (batteries uniquement)
+Après (v1.6.0):        20 technos
+  + Supercondensateur (EDLC) → seule « non-batterie » du modèle
+```
+
+### Pourquoi le supercondensateur est différent
+
+| Propriété | Batterie | Supercondensateur |
+|-----------|----------|-------------------|
+| Courbe OCV | Plateau / pente douce | **Linéaire** (V = V_max − I·t/C) |
+| SoC | Table ou polynôme OCV | **Énergie** : (V² − V_min²)/(V_max² − V_min²) |
+| Résistance | Thévenin + polarisation RC | **ESR seule** |
+| Peukert | k > 1 (perte à fort courant) | **Neutre** (k = 1.0) |
+| OCV fiable ? | Dépend (repos requis) | **Toujours** (lecture directe) |
+
+---
+
+## 🆕 NOUVELLE TECHNOLOGIE AJOUTÉE
+
+### TECH_SUPERCAP (Index 19) - Supercondensateur EDLC
+
+**Statut**: ✅ RECHARGEABLE — backup power / peak shaving IoT
+
+**Propriétés**:
+```
+Nominal voltage:    2.7V par cellule (V_max, classique)
+Voltage range:      1.35V (V_min = 0.5 × V_max) - 2.70V (plein)
+SoC (énergie):      soc = 100 × (V² − V_min²)/(V_max² − V_min²)
+Nominal system:     2.0V par cellule (~0.75 × V_max, convention constructeurs)
+```
+
+**Paramètres Thévenin**:
+```
+R25 (mOhm):        5.0     (ESR seule)
+beta_temp:         0.003   (faible dépendance T de l'ESR)
+gamma_soc:         0.0     (ESR indépendant du SoC)
+k_peukert:         1.0     (Peukert neutralisé)
+Rpol0 / tau_pol:   0 / 0   (aucune polarisation RC)
+V_float / V_abs:   2.70 / 2.70 V par cellule (plein = V_max)
+```
+
+**Capacité (constructeur)**:
+```
+L'utilisateur fournit l'équivalent Ah :
+  Ah_equiv = 0.5 × C_farads × (V_max² − V_min²) / (3600 × V_nominal)
+Ex. cellule 100 F / 2.7 V : ≈ 0.04 Ah
+```
+
+**Pourquoi ajoutée**:
+- 🟢 Complément courant des batteries dans les systèmes embarqués (backup, burst)
+- 🟢 SoC déterministe (tension = état de charge, pas de chimie ni relaxation)
+- 🟢 Dernière technologie « Arduino-Applicable » non couverte
+
+---
+
+## 📈 COUVERTURE MISE À JOUR
+
+| Famille | v1.5.0 | v1.6.0 | Gap |
+|---------|--------|--------|-----|
+| **Lead-Acid** | 4 | 4 | ✅ |
+| **Lithium** | 8 | 8 | ✅ |
+| **Nickel** | 4 | 4 | ✅ |
+| **Sodium** | 1 | 1 | — |
+| **Supercondensateur** | 0 | **1** | ✅ Fermé |
+| **Divers/Primary** | 1 + Unknown | 1 + Unknown | — |
+| **TOTAL** | 19 | **20** | ✅ +1 |
+
+---
+
+## 🧪 TESTING RECOMMENDATIONS
+
+```cpp
+// Supercondensateur : SoC basé énergie
+BatteryModel sc(TECH_SUPERCAP, 1, 0.04f, 5.0f);
+
+assert(sc.ocvToSoc(2.70f, 25.0f) > 99.0f);   // plein (V_max)
+assert(sc.ocvToSoc(1.35f, 25.0f) < 0.5f);    // vide (V_min)
+assert(sc.socToOcv(50.0f, 25.0f) ≈ 2.1345f); // sqrt(1.35² + 0.5*(2.70²-1.35²))
+
+// ESR seule : pas de polarisation
+float v_pol = -1.0f;
+sc.correctVoltageToOCV(2.50f, -1.0f, 25.0f, 0.1f, nullptr, &v_pol);
+assert(v_pol == 0.0f);
+
+// OCV directe et fiable
+assert(sc.isOcvReliable());
+```
+
+---
+
+## ✅ IMPLEMENTATION CHECKLIST
+
+- [x] `enum BatteryTech` : TECH_SUPERCAP=19, TECH_COUNT=20
+- [x] `TECH_NAMES[]` : « Supercondensateur (EDLC) »
+- [x] `TECH_PARAMS[]` : entrée (ESR, k=1.0, τ=0, V_min/V_max, detect + kalman)
+- [x] `ocvToSoc()` / `socToOcv()` : case dédiée (SoC énergie / inverse sqrt)
+- [x] `getNominalVoltage()` : 2.0 V/cell
+- [x] `isOcvReliable()` : true (lecture directe)
+- [x] `library.json`, README, CHANGELOG, docs
+
+---
+
+## 🎯 RESULT (v1.6.0)
+
+**Coverage**: 19 → 20 technologies  
+**New technologies**: Supercondensateur (EDLC)  
+**Total techs supported**: 20/20  
+**Status**: ✅ **PRODUCTION READY**
+
+---
+
+**Version**: v1.6.0  
 **Git branch**: Ready for merge to `main`  
 **Breaking changes**: None (backward compatible, enum additive)

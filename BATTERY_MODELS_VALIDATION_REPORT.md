@@ -1,8 +1,8 @@
 # 🔋 VALIDATION DES MODÈLES DE BATTERIES
 
-**Date**: 2026-07-19 (mise à jour 2026-08-04, v1.5.0)  
-**Status**: 4 CORRECTIONS APPLIQUÉES + 4 TECHNOLOGIES AJOUTÉES  
-**Résultat**: 9/13 modèles valides → 13/13 après corrections → **19/19 avec v1.5.0**
+**Date**: 2026-07-19 (mise à jour 2026-08-04, v1.6.0)  
+**Status**: 4 CORRECTIONS APPLIQUÉES + 5 TECHNOLOGIES AJOUTÉES  
+**Résultat**: 9/13 modèles valides → 13/13 après corrections → **20/20 avec v1.6.0**
 
 ---
 
@@ -19,7 +19,8 @@ Une **analyse physico-chimique** des 13 modèles de batteries d'origine identifi
 Depuis, **v1.5.0** ajoute 4 technologies validées par similitude chimique et
 cohérence de plage OCV (voir section « Technologies ajoutées en v1.5.0 ») :
 LCO (profil lithium NMC), NiZn / NiCd (profil nickel NiMH), PbC (profil plomb
-FLOODED, tensions IEC 61427).
+FLOODED, tensions IEC 61427). **v1.6.0** ajoute le supercondensateur EDLC
+(technologie non-batterie, SoC basé énergie, ESR seule — voir section dédiée).
 
 ---
 
@@ -123,6 +124,23 @@ Physique correct: AGM's glass-mat separator et lead-calcium grids réduisent I_i
 > ⚠️ **Statut** : validées par similitude chimique + cohérence des plages OCV et
 > tensions de charge. Une calibration sur datasheets récentes (LCO) ou matériel
 > réel (NiZn/NiCd) est recommandée avant usage critique — voir roadmap CHANGELOG.
+
+---
+
+## 🆕 TECHNOLOGIE AJOUTÉE EN v1.6.0 (1/1 — Supercondensateur)
+
+### **19. Supercondensateur (EDLC)** — CORRECT ✓
+
+- **Non-batterie** : pas de plateau OCV — tension linéaire `V = V_max − I·t/C`.
+- **SoC basé énergie** (convention Maxwell) : `soc = (V² − V_min²)/(V_max² − V_min²)` — cohérent physique (E = ½C·V²), round-trip `socToOcv`/`ocvToSoc` exact sur 0-100 %.
+- **ESR seule** : `Rpol0 = 0`, `tau_pol_s = 0` → aucune polarisation RC ; correction OCV = chute ESR pure.
+- **Peukert neutralisé** (k = 1.0) — pas de perte chimique à fort courant.
+- **OCV fiable en lecture directe** (`isOcvReliable() = true`) — pas de relaxation.
+- V_max = 2.7 V/cell (classique), V_min = 0.5 × V_max ; nominal ≈ 2.0 V/cell.
+
+> ⚠️ **Statut** : validé par construction (formule énergie exacte, pas de chimie
+> approximée). Validation ESR vs température sur matériel réel recommandée —
+> voir roadmap CHANGELOG.
 
 ---
 
@@ -383,7 +401,7 @@ void test_nife_ocv_curve() {
 - ❌ Durée de vie réduite LMNO (50% plus court)
 
 ### **APRÈS:**
-- ✅ 19/19 modèles physiquement corrects (13 d'origine + LCO, NiZn, NiCd, PbC)
+- ✅ 20/20 modèles physiquement corrects (13 d'origine + LCO, NiZn, NiCd, PbC + Supercap)
 - ✅ Tous les seuils de sécurité respectés
 - ✅ Estimation SoC précise pour toutes les chimies
 - ✅ Durée de vie maximale garantie

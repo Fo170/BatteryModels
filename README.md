@@ -4,10 +4,17 @@
 [![PlatformIO](https://img.shields.io/badge/PlatformIO-Compatible-orange)](https://platformio.org/)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![GitHub release](https://img.shields.io/github/v/release/Fo170/BatteryModels)](https://github.com/Fo170/BatteryModels/releases)
-[![Version](https://img.shields.io/badge/Version-1.5.0-brightgreen.svg)](https://github.com/Fo170/BatteryModels/releases)
+[![Version](https://img.shields.io/badge/Version-1.6.0-brightgreen.svg)](https://github.com/Fo170/BatteryModels/releases)
 
-Bibliothèque complète de modèles paramétriques pour batteries, incluant tables OCV (Open Circuit Voltage), modèle Thévenin dynamique, et **modèles thermiques avancés (Arrhenius exponentiel)** pour 19 technologies différentes. **Header-only**, **PROGMEM-ready** pour AVR, et **cross-platform** (ESP32, ARM, etc.).
+Bibliothèque complète de modèles paramétriques pour batteries, incluant tables OCV (Open Circuit Voltage), modèle Thévenin dynamique, et **modèles thermiques avancés (Arrhenius exponentiel)** pour 20 technologies différentes. **Header-only**, **PROGMEM-ready** pour AVR, et **cross-platform** (ESP32, ARM, etc.).
 
+> **🚀 v1.6.0 - SUPERCONDENSATEUR (EDLC)**  
+> Ajout de **TECH_SUPERCAP** : SoC basé énergie `(V² − V_min²)/(V_max² − V_min²)`,  
+> **ESR seule** (pas de polarisation RC), Peukert neutralisé, OCV fiable en lecture directe.  
+> Tension nominale 2.7 V/cell, `V_min = 0.5 × V_max`.  
+> ✅ **100% backward compatible** — enum étendue en fin de liste, aucun changement de signature.  
+> Voir [`TECHNOLOGY_EXPANSION.md`](TECHNOLOGY_EXPANSION.md).
+>
 > **🚀 v1.5.0 - EXPANSION TECHNOLOGIQUE (LCO, NiZn, NiCd, PbC)**  
 > Ajout de 4 nouvelles technologies : **Li-Cobalt (LCO)** (table OCV 9 pts),  
 > **Nickel-Zinc (NiZn)**, **Nickel-Cadmium (NiCd)** et **Plomb-Carbone (PbC)**  
@@ -41,7 +48,7 @@ Bibliothèque complète de modèles paramétriques pour batteries, incluant tabl
 
 ## 📋 Caractéristiques
 
-- **19 technologies de batteries** supportées (voir tableau ci-dessous)
+- **20 technologies de batteries** supportées (voir tableau ci-dessous)
 - **Tables OCV précises** : interpolation linéaire entre points caractéristiques
 - **Modèle Thévenin complet** : résistance interne dynamique (T°C + SoC) + polarisation RC
 - **Modèles thermiques avancés (v1.2)** 🌡️ :
@@ -61,7 +68,7 @@ Bibliothèque complète de modèles paramétriques pour batteries, incluant tabl
 - **Pas de dépendances externes**
 - **100% backward compatible** : migration zéro depuis v1.1.0
 
-## 🔋 Technologies supportées (19 types)
+## 🔋 Technologies supportées (20 types)
 
 | Index | Technologie | Tension/cell | Type | Caractéristiques principales |
 |-------|-------------|--------------|------|------------------------------|
@@ -80,12 +87,17 @@ Bibliothèque complète de modèles paramétriques pour batteries, incluant tabl
 | 12 | TECH_SODIUM | 3.0V | ♻️ | Sodium-Ion (Na-ion) |
 | 13 | TECH_NIMH | 1.2V | ♻️ | Nickel-Metal Hydride (AA/AAA) |
 | 14 | TECH_ALKALINE | 1.5V | 🔌 | Alkaline Primary (non-rechargeable) |
-| 15 | TECH_LCO | 3.7V | ♻️ | **NEW** : Li-Cobalt (LiCoO2, legacy phones) |
-| 16 | TECH_NIZN | 1.6V | ♻️ | **NEW** : Nickel-Zinc (RC / amateur radio) |
-| 17 | TECH_NICD | 1.2V | ♻️ | **NEW** : Nickel-Cadmium (legacy outils/RC) |
-| 18 | TECH_PBC | 2.0V | ♻️ | **NEW** : Plomb-Carbone (stop-start auto) |
+| 15 | TECH_LCO | 3.7V | ♻️ | Li-Cobalt (LiCoO2, legacy phones) |
+| 16 | TECH_NIZN | 1.6V | ♻️ | Nickel-Zinc (RC / amateur radio) |
+| 17 | TECH_NICD | 1.2V | ♻️ | Nickel-Cadmium (legacy outils/RC) |
+| 18 | TECH_PBC | 2.0V | ♻️ | Plomb-Carbone (stop-start auto) |
+| 19 | TECH_SUPERCAP | 2.0V | ♻️ | **NEW** : Supercondensateur (EDLC, 2.7V max) |
 
 **Légende**: ♻️ = Rechargeable | 🔌 = Primary (non-rechargeable)
+
+> **Supercondensateur** : pas de plateau OCV — le SoC est calculé par énergie
+> `(V² − V_min²)/(V_max² − V_min²)`, avec `V_max = 2.7 V/cell`, `V_min = 0.5 × V_max`.
+> Résistance = **ESR seule** (pas de polarisation RC), Peukert neutralisé.
 
 ## 📊 États de Charge (ChargeState)
 
@@ -111,7 +123,7 @@ Bibliothèque complète de modèles paramétriques pour batteries, incluant tabl
 ### Via Arduino Library Manager (Recommended) ⭐
 1. Arduino IDE : `Croquis > Inclure une bibliothèque > Gérer les bibliothèques`
 2. Recherchez `BatteryModels`
-3. Installez la dernière version (1.5.0+)
+3. Installez la dernière version (1.6.0+)
 
 ### Via Arduino IDE (Manual ZIP)
 1. Téléchargez le ZIP depuis [Latest Release](https://github.com/Fo170/BatteryModels/releases)
@@ -120,10 +132,10 @@ Bibliothèque complète de modèles paramétriques pour batteries, incluant tabl
 ### Via PlatformIO (Recommended) ⭐
 Ajoutez à votre `platformio.ini` :
 
-**Pour v1.5.0 (stable):**
+**Pour v1.6.0 (stable):**
 ```ini
 lib_deps =
-    https://github.com/Fo170/BatteryModels.git@^1.5.0
+    https://github.com/Fo170/BatteryModels.git@^1.6.0
 ```
 
 **Ou via le registry:**

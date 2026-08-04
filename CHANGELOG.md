@@ -4,6 +4,39 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.6.0] - 2026-08-04 - Supercondensateur (TECH_SUPERCAP)
+
+### ✨ Added
+
+- **TECH_SUPERCAP (19)** — supercondensateur EDLC, `TECH_COUNT` 19 → **20**. Tension nominale 2.7 V/cell (classique), `V_min = 0.5 × V_max` (1.35 V).
+- **SoC basé énergie** (convention Maxwell) : `soc = 100 × (V² − V_min²)/(V_max² − V_min²)` dans `ocvToSoc()` — pas de plateau OCV, tension linéaire.
+- **Inverse** dans `socToOcv()` : `V = sqrt(V_min² + soc/100 × (V_max² − V_min²))`.
+- Paramètres : **ESR seule** (`R25 = 5 mΩ/cell`, `Rpol0 = 0`, `tau_pol_s = 0`, `gamma_soc = 0`), **Peukert neutralisé** (`k_peukert = 1.0`), thermique neutre.
+- `isOcvReliable() == true` : l'OCV d'un supercondensateur se lit directement (pas de relaxation chimique).
+- `getNominalVoltage()` : `2.0 V/cell` (≈ 0.75 × V_max, convention constructeurs).
+
+### 🔄 Changed
+
+- `ocvToSoc()` / `socToOcv()` : `case TECH_SUPERCAP:` ajouté (formule énergie), les autres technos inchangées.
+- `TECH_NAMES[]` : « Supercondensateur (EDLC) » ajouté.
+- `BatteryModels.h` : commentaire de version → v1.6.0.
+- `library.json` : version → 1.6.0, description + keywords (supercap, supercapacitor, edlc).
+- `README.md` : badge v1.6.0, tableau 20 types, installation `@^1.6.0`.
+- `TECHNOLOGY_EXPANSION.md` : section v1.6.0 (couverture 19 → 20, supercap).
+- `BATTERY_COVERAGE_ANALYSIS.md` : 20 technos, gap supercap fermé.
+
+### ✅ Backward Compatibility
+
+- **100% compatible** avec v1.5.0 — API **additive uniquement** : `TECH_SUPERCAP = 19` ajouté en fin d'enum (aucun ID ré-indexé), aucune signature modifiée.
+
+### 🧪 Validation
+
+- `g++ -fsyntax-only` avec mock `Arduino.h` : header + 4 exemples OK.
+- Tests fonctionnels supercap (15 assertions) : plein/vide (V_max/V_min), `socToOcv(50%) ≈ 2.1345 V`, round-trip soc→ocv→soc cohérent sur 0-100%, `isRechargeable()`, `isOcvReliable()`, nominal 2.0 V/cell (×6 = 12 V), Peukert neutralisé, correction OCV sans polarisation RC (ESR seule).
+- Harness v1.5.0 (19 assertions) toujours vert avec `TECH_COUNT == 20`.
+
+---
+
 ## [1.5.0] - 2026-08-04 - Expansion technologique (LCO, NiZn, NiCd, PbC)
 
 ### ✨ Added
@@ -370,31 +403,31 @@ Range: 0.9V (dead) → 1.55V (fresh)
 - **1.3.0**: Bug fix (detectChargeState FLOAT, same API)
 - **1.4.0**: Configuration par technologie (DetectionConfig + KalmanTuning)
 - **1.5.0**: Expansion technologique (LCO, NiZn, NiCd, PbC)
+- **1.6.0**: Supercondensateur (TECH_SUPERCAP, SoC basé énergie)
 
 ---
 
 ## Roadmap
 
-### v1.5.0 (Current)
-- ✅ Expansion technologique (LCO, NiZn, NiCd, PbC)
+### v1.6.0 (Current)
+- ✅ Supercondensateur (TECH_SUPERCAP, EDLC)
 - Monitor user feedback on thermal accuracy
 
-### v1.6.0 (Possible, 2027+)
+### v1.7.0 (Possible, 2027+)
 - [ ] LCO table OCV recalée sur datasheets récentes
 - [ ] NiZn / NiCd validation sur matériel réel
-- [ ] Supercapacitor extension (new architecture)
+- [ ] Validation supercap sur matériel réel (ESR vs température)
 
-### v1.7.0 (Future, 2028+)
+### v1.8.0 (Future, 2028+)
 - [ ] Solid-State Lithium (when commercial products exist)
 - [ ] K-Ion (Potassium-Ion, if adoption rises)
 
 ### Not Planned
 - ❌ Grid-scale batteries (Flow, Na-S, Al-Air) — not Arduino-applicable
-- ❌ Legacy NiCd — banned EU 2006, obsolete
 - ❌ Theoretical Li-Air — no commercial products
 
 ---
 
 **Last Updated**: 2026-08-04  
-**Current Version**: 1.5.0  
+**Current Version**: 1.6.0  
 **License**: GNU General Public License v3.0
