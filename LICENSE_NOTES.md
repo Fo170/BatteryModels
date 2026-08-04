@@ -189,6 +189,30 @@ Tout doit être GPLv3
 - **Distribué en MIT avant**: ⚠️ Peut continuer en MIT (héritage)
 - **Code nouveau**: ⚠️ Doit respecter GPLv3
 
+### **Registre du changement (v1.0.1)**
+
+**Fichiers modifiés** :
+
+| Fichier | Changement |
+|---------|-----------|
+| **library.json** | `"MIT"` → `"GPL-3.0-only"` |
+| **README.md** | Badge MIT → GPLv3 + section licence détaillée |
+| **LICENSE** | Texte GPLv3 (complet) |
+
+**Fichiers créés** :
+
+| Fichier | Contenu |
+|---------|---------|
+| **LICENSE_NOTES.md** | Implications GPLv3 + FAQ |
+| **BUGFIXES_REPORT.md** | 11 bugs corrigés documentés |
+
+**Checklist appliquée** :
+
+- [x] LICENSE file contient GPLv3 complet
+- [x] library.json mis à jour (MIT → GPL-3.0-only)
+- [x] README.md badge + section licence détaillée
+- [x] FAQ GPLv3 documentée
+
 ---
 
 ## 📞 QUESTIONS FRÉQUENTES

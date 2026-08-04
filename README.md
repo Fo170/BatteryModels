@@ -27,7 +27,7 @@ Bibliothèque complète de modèles paramétriques pour batteries, incluant tabl
 > **✨ v1.2.0 - MODÈLES THERMIQUES AVANCÉS**  
 > Cette version ajoute des modèles thermiques non-linéaires (Arrhenius, RC thermique, OCV quadratique).  
 > **Précision améliorée ±1.4% SoC** (vs ±3.4% avant) sur -30 à +80°C.  
-> Voir [`THERMAL_IMPROVEMENTS_v1.2.md`](THERMAL_IMPROVEMENTS_v1.2.md) pour détails techniques.  
+> Voir [`docs/technique/MODELES_THERMIQUES.md`](docs/technique/MODELES_THERMIQUES.md) pour détails techniques.  
 > ✅ **100% backward compatible** avec v1.1.0.
 >
 > **Historique** : v1.0.1 corrigeait 11 bugs critiques + validation physique. Voir [`BUGFIXES_REPORT.md`](BUGFIXES_REPORT.md).

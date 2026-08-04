@@ -172,7 +172,7 @@ bool isRechargeable() const;
 
 ### 📚 Documentation
 
-- ✅ **THERMAL_IMPROVEMENTS_v1.2.md**: 650+ lines on thermal models, formulas, testing
+- ✅ **docs/technique/MODELES_THERMIQUES.md**: détails des modèles thermiques (formules, tests)
 - ✅ **README.md**: Updated version, characteristics, API
 - ✅ **CLAUDE.md**: Updated architecture, thermal sections, dev guidance
 - ✅ **CHANGELOG.md**: This file
@@ -200,6 +200,50 @@ bool isRechargeable() const;
 - **Alkaline**: Supports prototype/low-cost electronics
 - Combined: +40-50% real-world Arduino project coverage
 
+### 📦 Paramètres détaillés (Nouveaux Techs)
+
+**OCV Polynomial Coefficients**:
+
+**NiMH (TECH_NIMH)**
+```
+A = -0.35   (quadratic shape)
+B = 1.10    (linear slope)
+C = 1.40    (offset for 0% SoC)
+Range: 0.9V (empty) → 1.55V (full)
+```
+
+**Alkaline (TECH_ALKALINE)**
+```
+A = -0.20   (gentler quadratic)
+B = 0.85    (linear slope)
+C = 1.60    (fresh cell nominal)
+Range: 0.9V (dead) → 1.55V (fresh)
+```
+
+**Thévenin Parameters**:
+
+| Parameter | NiMH | Alkaline | Notes |
+|---|---|---|---|
+| **R25** (mΩ) | 6.0 | 8.0 | NiMH lower resistance |
+| **beta_temp** | 0.004 | 0.005 | Weak temp dependence both |
+| **gamma_soc** | 0.4 | 0.3 | NiMH more SoC-dependent |
+| **k_peukert** | 1.15 | 1.10 | Rate effect moderate both |
+| **R_soc_max** | 8.0 | 6.0 | Resistance limit at low SoC |
+| **Nominal V** | 1.2V/cell | 1.5V/cell | Standard per cell |
+
+**Validation**: NiMH calé sur courbes de décharge Panasonic Eneloop AA ; Alkaline sur datasheets Duracell/Energizer.
+
+### 📈 Coverage
+
+| Family | Avant | Après | Gap Closed |
+|--------|-------|-------|----------|
+| **Lead-Acid** | 3/4 (75%) | 3/4 (75%) | — |
+| **Lithium** | 9/13 (69%) | 9/13 (69%) | — |
+| **Nickel** | 1/4 (25%) | 2/4 (50%) | ✅ NiMH |
+| **Sodium** | 1/5 (20%) | 1/5 (20%) | — |
+| **Other** | 0/5 (0%) | 1/5 (20%) | ✅ Alkaline |
+| **TOTAL** | 13/30 (43%) | 15/30 (50%) | ✅ +2 |
+
 ---
 
 ## [1.0.1] - 2026-01-15 - Critical Bug Fixes & License Change
@@ -223,6 +267,22 @@ bool isRechargeable() const;
 - Bug #10: LMNO absorption voltage (4.30V → 4.20V, prevents O₂ loss)
 - Bug #11: NiFe OCV polynomial (recalibrated from datasheets)
 
+**Détail des corrections appliquées**:
+
+| # | Bug | Correction | Impact |
+|---|-----|-----------|--------|
+| 1 | Coulomb sign inversé | `-` → `+` dans l'accumulation | SoC correct |
+| 2 | Résistance négative | `R_T = max(R_T, 0.001f)` | Pas de NaN/Inf |
+| 3 | Code mort Peukert | Intégration Peukert dans l'accumulation | Accumulation physiquement correcte |
+| 4 | R_soc seuil magique (3.0) | Saturation exponentielle lisse | R_soc ≤ max, sans discontinuité |
+| 5 | Tolérance voltage fixe (±50 mV) | `max(0.1, V_nom × 0.015)` | Détection d'état robuste |
+| 6 | Peukert taux 20h fixe | Par technologie (20h plomb, 1C lithium) | Peukert correct partout |
+| 7 | Buffer static 32 B | 32 → 40 bytes + null-term | Pas d'overflow |
+| 8 | FLOODED V_float 2.30 → 2.37 V | IEC 61427 | Charge complète (+3-5%) |
+| 9 | GEL V_float/V_abs | 2.37/2.43 V | Charge complète + sûre |
+| 10 | LMNO V_abs 4.30 → 4.20 V | Limite électrochimique | Durée de vie 2× (1500 → 3000 cycles) |
+| 11 | NIFE OCV polynomial | `{-0.206, 0.518, 1.020}` → `{0.1, 0.35, 1.0}` | SoC ±25 pts → 0-5 pts |
+
 ### 🔄 Changed
 
 - **License**: MIT → **GNU GPLv3 v3.0** (copyleft)
@@ -235,8 +295,7 @@ bool isRechargeable() const;
 
 - **BUGFIXES_REPORT.md**: 11 bugs detailed with fixes
 - **BATTERY_MODELS_VALIDATION_REPORT.md**: Datasheet validation for all 13 techs
-- **LICENSE_NOTES.md**: GPLv3 implications and FAQ
-- **LICENSE_UPDATE_SUMMARY.md**: Migration guide (MIT → GPL)
+- **LICENSE_NOTES.md**: GPLv3 implications, FAQ et registre de la transition (MIT → GPL)
 
 ### ✅ Quality
 
@@ -276,21 +335,22 @@ bool isRechargeable() const;
 - **1.1.0**: Feature addition (tech expansion)
 - **1.2.0**: Enhancement (thermal models, new API methods)
 - **1.3.0**: Bug fix (detectChargeState FLOAT, same API)
+- **1.4.0**: Configuration par technologie (DetectionConfig + KalmanTuning)
 
 ---
 
 ## Roadmap
 
-### v1.3.x (Current)
-- ✅ detectChargeState() FLOAT fix (compatibilité BatteryKalman v1.5.3)
+### v1.4.0 (Current)
+- ✅ Configuration par technologie (DetectionConfig + KalmanTuning) — compatibilité BatteryKalman v1.6.0
 - Monitor user feedback on thermal accuracy
 
-### v1.4.0 (Possible, 2027+)
+### v1.5.0 (Possible, 2027+)
 - [ ] LCO (Lithium Cobalt) legacy support
 - [ ] NiZn (Nickel-Zinc) niche support
 - [ ] Supercapacitor extension (new architecture)
 
-### v1.5.0 (Future, 2028+)
+### v1.6.0 (Future, 2028+)
 - [ ] Solid-State Lithium (when commercial products exist)
 - [ ] K-Ion (Potassium-Ion, if adoption rises)
 
@@ -301,6 +361,6 @@ bool isRechargeable() const;
 
 ---
 
-**Last Updated**: 2026-08-03  
-**Current Version**: 1.3.0  
+**Last Updated**: 2026-08-04  
+**Current Version**: 1.4.0  
 **License**: GNU General Public License v3.0

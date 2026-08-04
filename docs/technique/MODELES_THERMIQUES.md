@@ -1,37 +1,266 @@
-# 🌡️ AMÉLIORATIONS THERMIQUES - v1.2.0
+# 🌡️ Modèles thermiques — BatteryModels
 
-**Date**: 2026-07-19  
+Fusion des analyses de compensation de température (v1.1.0) et des améliorations thermiques avancées (v1.2.0).
+
+**Dates**: 2026-07-19  
 **Status**: ✅ IMPLÉMENTÉ  
-**Amélioration de Précision**: -20 à +80°C (+50-60% meilleure précision)
+**Amélioration de précision**: de ±3.4% (v1.1.0) à ±1.4% (v1.2.0) sur **-30 à +80°C** (≈ 2.4× meilleur)
 
 ---
 
-## 📊 RÉSUMÉ DES AMÉLIORATIONS
+## 📊 VUE D'ENSEMBLE
 
-### **Avant (v1.1.0) - Modèles Linéaires**
+La bibliothèque applique **deux compensations de température** de base :
 
-```
-Résistance:    R_T = R25 × (1 + β × ΔT)           ← Linéaire (imprécis aux extrêmes)
-Polarisation:  τ = constant (ignoré T)            ← Pas de compensation
-OCV:           V = V_ref + dVocv_dT × ΔT         ← Linéaire uniquement
-Plage précise: -20 à +60°C                        ← Limitations
-```
+| Compensation | Paramètre | Formule v1.1 | Effet |
+|---|---|---|---|
+| **Résistance interne** | `beta_temp` | `R_T = R25 × (1 + beta_temp × ΔT)` | Résistance augmente au froid |
+| **Tension OCV** | `dVocv_dT` | `V += dVocv_dT × ΔT` | Tension OCV baisse avec chaleur |
 
-### **Après (v1.2.0) - Modèles Avancés**
+**v1.2.0** ajoute trois modèles avancés (voir §Modèles avancés v1.2.0) :
 
 ```
-Résistance:    R_T = R25 × exp(α_Ea × ΔT)        ← Exponentiel Arrhenius ✓
-Polarisation:  τ = τ_ref × exp(α_tau × ΔT)       ← Compensation RC ✓
-OCV:           V = V_ref + dV/dT×ΔT + d²V/dT²×ΔT² ← Polynomial quadratique ✓
-Plage précise: **-30 à +80°C**                    ← Étendue! ✓
-Erreur SoC:    < ±2% (vs ±5% avant)              ← 2.5× mieux ✓
+Résistance:    R_T = R25 × exp(α_Ea × ΔT)          ← Exponentiel Arrhenius ✓
+Polarisation:  τ = τ_ref × exp(α_tau × ΔT)         ← Compensation RC ✓
+OCV:           V = V_ref + dV/dT×ΔT + d²V/dT²×ΔT²  ← Polynôme quadratique ✓
+Plage précise: -30 à +80°C                          ← Étendue! ✓
 ```
 
 ---
+
+# PARTIE A — Compensation linéaire de base (v1.1.0)
+
+## 1️⃣ COMPENSATION RÉSISTANCE INTERNE (beta_temp)
+
+### Formule
+```
+R_T = R25 × (1 + beta_temp × (25 - T))
+```
+
+**Où**:
+- R25 = résistance nominale à 25°C (mΩ)
+- beta_temp = coefficient température (%/°C)
+- T = température courante (°C)
+- ΔT = 25 - T = écart à la référence
+
+### Exemple Concret: LiFePO4
+
+```
+β_temp = 0.003 (%/°C)  → Très faible dépendance
+R25 = 5 mΩ             → Référence 25°C
+
+Température  | ΔT   | Coefficient | R_T    | Variation |
+─────────────┼──────┼─────────────┼────────┼────────────
+0°C (froid)  | +25  | 1 + 0.075   | 5.375  | +7.5%  ❄️
+10°C         | +15  | 1 + 0.045   | 5.225  | +4.5%  ❄️
+20°C         | +5   | 1 + 0.015   | 5.075  | +1.5%  🔹
+25°C (ref)   | 0    | 1 + 0.000   | 5.000  | ±0%    ✓
+40°C         | -15  | 1 - 0.045   | 4.775  | -4.5%  🔥
+50°C (chaud) | -25  | 1 - 0.075   | 4.625  | -7.5%  🔥
+```
+
+### Coefficients beta_temp par Technologie
+
+| Technologie | beta_temp | Sensibilité | Notes |
+|---|---|---|---|
+| **TECH_UNKNOWN** | 0.012 | ⚠️ **Très élevée** | Paramètres prudents |
+| **TECH_FLOODED** | 0.015 | ⚠️ **Très élevée** | Plomb: R varie beaucoup |
+| **TECH_AGM** | 0.008 | 🟡 Élevée | Plomb AGM: moins que inondé |
+| **TECH_GEL** | 0.012 | ⚠️ Élevée | Plomb gel: similaire inondé |
+| **TECH_LIFEPO4** | 0.003 | 🟢 **Très faible** | LFP: très stable |
+| **TECH_LION** | 0.005 | 🟢 **Faible** | Li-Ion: stable |
+| **TECH_LIPO** | 0.004 | 🟢 **Très faible** | LiPo: très stable |
+| **TECH_LTO** | 0.006 | 🟢 **Faible** | LTO: modéré |
+| **TECH_LMNO** | 0.005 | 🟢 **Faible** | LMNO: stable |
+| **TECH_NMC** | 0.005 | 🟢 **Faible** | NMC: stable |
+| **TECH_NCA** | 0.005 | 🟢 **Faible** | NCA: stable |
+| **TECH_NIFE** | 0.008 | 🟡 **Élevée** | NiFe: forte dépendance |
+| **TECH_SODIUM** | 0.004 | 🟢 **Très faible** | Na-Ion: très stable |
+| **TECH_NIMH** | 0.004 | 🟢 **Très faible** | NiMH: stable |
+| **TECH_ALKALINE** | 0.005 | 🟢 **Faible** | Alkaline: modéré |
+
+---
+
+## 2️⃣ COMPENSATION TENSION OCV (dVocv_dT)
+
+### Formule
+```
+V_cell += dVocv_dT × (T - 25)
+```
+
+**Où**:
+- dVocv_dT = dérivée OCV/température (V/°C)
+- T = température courante (°C)
+- **Négatif**: tension BAISSE avec la chaleur
+- **Positif**: tension AUGMENTE avec la chaleur
+
+### Exemple Concret: Li-Ion
+
+```
+dVocv_dT = -0.0003 V/°C  (par cellule)
+
+Température  | ΔT   | Correction | V_cell (avant) | V_cell (après) | Δ V    |
+─────────────┼──────┼────────────┼────────────────┼────────────────┼────────
+0°C (froid)  | -25  | +0.0075V   | 3.700V         | 3.7075V        | +7.5mV ❄️
+10°C         | -15  | +0.0045V   | 3.700V         | 3.7045V        | +4.5mV ❄️
+20°C         | -5   | +0.0015V   | 3.700V         | 3.7015V        | +1.5mV 🔹
+25°C (ref)   | 0    | 0.0000V    | 3.700V         | 3.7000V        | ±0    ✓
+40°C         | +15  | -0.0045V   | 3.700V         | 3.6955V        | -4.5mV 🔥
+50°C (chaud) | +25  | -0.0075V   | 3.700V         | 3.6925V        | -7.5mV 🔥
+```
+
+**Impact sur SoC**:
+```
+À 0°C:   V_system = 7.4V × 4 cells + 0.030V = 29.63V
+À 50°C:  V_system = 7.4V × 4 cells - 0.030V = 29.57V
+
+Erreur SoC potentielle sans compensation: ±1-2%
+```
+
+### Coefficients dVocv_dT par Technologie
+
+| Technologie | dVocv_dT (V/°C) | Magnitude | Interprétation |
+|---|---|---|---|
+| **TECH_UNKNOWN** | -0.0039 | 🟡 Modérée | Prudent, entre min/max |
+| **TECH_FLOODED** | -0.0037 | 🟡 Modérée | Plomb: baisse légère |
+| **TECH_AGM** | -0.0040 | 🟡 Modérée | Plomb AGM: similaire |
+| **TECH_GEL** | -0.0040 | 🟡 Modérée | Plomb gel: similaire |
+| **TECH_LIFEPO4** | -0.0005 | 🟢 **Très faible** | LFP: OCV très stable |
+| **TECH_LION** | -0.0003 | 🟢 **Très faible** | Li-Ion: très stable |
+| **TECH_LIPO** | -0.0002 | 🟢 **Minimal** | LiPo: extrêmement stable |
+| **TECH_LTO** | -0.0010 | 🟢 **Faible** | LTO: faible variation |
+| **TECH_LMNO** | -0.0004 | 🟢 **Très faible** | LMNO: stable |
+| **TECH_NMC** | -0.00035 | 🟢 **Très faible** | NMC: très stable |
+| **TECH_NCA** | -0.0003 | 🟢 **Très faible** | NCA: très stable |
+| **TECH_NIFE** | -0.0015 | 🟢 **Faible** | NiFe: modérée |
+| **TECH_SODIUM** | -0.0003 | 🟢 **Très faible** | Na-Ion: très stable |
+| **TECH_NIMH** | -0.0004 | 🟢 **Très faible** | NiMH: stable |
+| **TECH_ALKALINE** | -0.0002 | 🟢 **Minimal** | Alkaline: extrêmement stable |
+
+---
+
+## 🔍 IMPACT COMBINÉ (Résistance + OCV) — limites du modèle linéaire
+
+### Cas 1: Batterie Plomb (Flooded) - Froid Extrême (-10°C)
+
+```
+Conditions:
+├─ Technologie: TECH_FLOODED
+├─ Voltage mesuré: 12.0V (système 6 cellules)
+├─ Current: 10A (décharge)
+└─ Temperature: -10°C
+
+Calculs:
+1. Résistance corrigée:
+   R25 = 15 mΩ, beta = 0.015
+   R_T = 15 × (1 + 0.015 × (25 - (-10))) = 15 × 1.525 = 22.875 mΩ
+   → Résistance +52.5% ! ⚠️
+
+2. Chute ohmique:
+   V_drop = 22.875 mΩ × 10A = 0.229V
+   → Perte importante de voltage
+
+3. Correction OCV:
+   dVocv_dT = -0.0037 V/°C
+   ΔV_ocv = -0.0037 × (2.0V) × (-35°C) = +0.259V par cellule
+   V_system_correction = +1.554V pour 6 cellules
+
+4. Tension OCV estimée:
+   V_measured = 12.0V
+   V_ocv = 12.0V - 0.229V + 1.554V = 13.325V ! ⚠️ (overcorrection)
+```
+
+**Problème identifié**: À très basse température (< -10°C), les corrections deviennent très agressives. Le modèle linéaire de temperature ne suffit plus. → motif des modèles avancés v1.2.0.
+
+### Cas 2: Batterie Lithium (LiFePO4) - Plage de Fonctionnement
+
+```
+Conditions:
+├─ Technologie: TECH_LIFEPO4
+├─ Voltage mesuré: 13.2V (système 4 cellules)
+├─ Current: 20A (charge)
+└─ Temperature: 0°C à 50°C
+
+Température | R_T (mΩ) | %Var | ΔV_ocv | V_OCVcorr | Impact SoC |
+─────────────┼──────────┼──────┼────────┼───────────┼───────────
+0°C  | 5.375 | +7.5% | +0.002V | +0.008V | ±0.5% 📊
+10°C | 5.225 | +4.5% | +0.0012V| +0.005V | ±0.3% 📊
+25°C | 5.000 | ±0%   | 0.0000V | 0.000V  | ✓ ref
+40°C | 4.775 | -4.5% | -0.0012V| -0.005V | ±0.3% 📊
+50°C | 4.625 | -7.5% | -0.002V | -0.008V | ±0.5% 📊
+
+Conclusion: Variations très faibles (< ±1% SoC) ✓ EXCELLENT
+```
+
+---
+
+## 🎯 RECOMMANDATIONS D'UTILISATION (v1.1)
+
+### 1. Toujours Fournir la Température
+
+```cpp
+// ✅ BON: avec température
+float soc = battery.ocvToSoc(12.5f, 25.0f);  // 25°C
+float soc = battery.ocvToSoc(12.5f, 5.0f);   // 5°C froid
+
+// ❌ MAUVAIS: sans température (défaut = 25°C)
+float soc = battery.ocvToSoc(12.5f);  // Assume 25°C!
+```
+
+### 2. Plages de Température Sûres
+
+| Technologie | Plage sûre | Plage limite | Notes |
+|---|---|---|---|
+| **Plomb** | 5-45°C | -10 à +60°C | Erreurs croissantes aux extrêmes |
+| **LiFePO4** | -20 à +60°C | -30 à +80°C | Très robuste |
+| **Li-Ion** | -10 to +50°C | -20 à +70°C | Bon à excellent |
+| **NiMH** | 0 à 50°C | -10 à +60°C | Bon |
+| **Alkaline** | 5 à 45°C | -10 à +60°C | Acceptable |
+
+### 3. Compensation Implicite dans les Méthodes
+
+Toutes les méthodes prennent automatiquement en compte température:
+
+```cpp
+// Automatiquement compensé:
+float soc = ocvToSoc(voltage, temperature);           // ✓ Compensation OCV
+float v_cell = correctVoltageToOCV(V, I, temp, dt);  // ✓ Compensation R_T
+float v_ocv = socToOcv(soc, temperature);            // ✓ Compensation OCV
+float state = detectChargeState(voltage, current);   // Pas de compensation
+```
+
+---
+
+## 📈 ANALYSE DE COUVERTURE TEMPÉRATURE (v1.1) — limites identifiées
+
+1. **Modèle linéaire uniquement**
+   ```
+   R_T = R25 × (1 + β × ΔT)   ← Linear
+   Réalité: Non-linéaire aux extrêmes (-40 à +80°C)
+   ```
+   Impact: Erreur < 5% pour -20 à +60°C ✓
+
+2. **Pas de compensation polarisation thermique**
+   ```
+   τ_pol = tau_pol_s  ← Constant (ignores temperature)
+   Réalité: τ baisse avec chaleur (RC augmente en froid)
+   ```
+   Impact: Minimal (< 1% SoC) pour applications Arduino
+
+3. **Tables OCV à température unique (25°C)**
+   ```
+   OCV_LIFEPO4[7][2]  ← All at 25°C reference
+   Réalité: Tables devraient varier par température
+   ```
+   Impact: Mitigé par dVocv_dT linéaire
+
+---
+
+# PARTIE B — Modèles avancés (v1.2.0)
 
 ## 🔧 NOUVEAUX PARAMÈTRES THERMIQUES
 
-### **1. Énergie d'Activation (E_a_R)**
+### 1. Énergie d'Activation (E_a_R)
 
 **Modèle Arrhenius pour la résistance interne**:
 
@@ -78,9 +307,7 @@ Température | Linéaire | Exponentiel | Écart |
 Modèle exponentiel = beaucoup plus précis
 ```
 
----
-
-### **2. Coefficient Thermique RC (alpha_tau)**
+### 2. Coefficient Thermique RC (alpha_tau)
 
 **Modèle exponentiel pour la constante de temps RC**:
 
@@ -125,9 +352,7 @@ Batterie LiFePO4, α_tau = 0.008, τ_25 = 2.0s
   → Réponse 22% plus lente qu'à 25°C 🔥
 ```
 
----
-
-### **3. Terme Quadratique OCV (d2Vocv_dT2)**
+### 3. Terme Quadratique OCV (d2Vocv_dT2)
 
 **Correction OCV quadratique**:
 
@@ -180,9 +405,9 @@ Quadratique = mieux aux limites
 
 ---
 
-## 🔬 NOUVELLES MÉTHODES API
+## 🔬 NOUVELLES MÉTHODES API (v1.2.0)
 
-### **1. getResistanceAtTemp()**
+### 1. getResistanceAtTemp()
 
 ```cpp
 float getResistanceAtTemp(float R25, float temperature) const;
@@ -204,9 +429,7 @@ float R_0 = battery.getResistanceAtTemp(5.0f, 0.0f);    // ~5.08 mΩ
 float R_50 = battery.getResistanceAtTemp(5.0f, 50.0f);  // ~4.93 mΩ
 ```
 
----
-
-### **2. getTauPol_thermal()**
+### 2. getTauPol_thermal()
 
 ```cpp
 float getTauPol_thermal(float temperature) const;
@@ -228,9 +451,7 @@ float tau_cold = battery.getTauPol_thermal(-10.0f);  // ~5.2s
 float tau_hot = battery.getTauPol_thermal(50.0f);    // ~3.1s
 ```
 
----
-
-### **3. applyThermalCorrectionOCV()**
+### 3. applyThermalCorrectionOCV()
 
 ```cpp
 float applyThermalCorrectionOCV(float V_cell, float temperature) const;
@@ -249,9 +470,7 @@ float V_0C = battery.applyThermalCorrectionOCV(V_cell_25C, 0.0f);   // +correcti
 float V_50C = battery.applyThermalCorrectionOCV(V_cell_25C, 50.0f); // -correction
 ```
 
----
-
-### **4. removeThermalCorrectionOCV()** (Inverse)
+### 4. removeThermalCorrectionOCV() (Inverse)
 
 ```cpp
 float removeThermalCorrectionOCV(float V_cell, float temperature) const;
@@ -270,9 +489,9 @@ float V_normalized_25C = battery.removeThermalCorrectionOCV(V_measured_50C, 50.0
 
 ---
 
-## 📈 AMÉLIORATION DE PRÉCISION
+## 📈 AMÉLIORATION DE PRÉCISION (v1.2.0)
 
-### **Erreur Estimée vs Température**
+### Erreur Estimée vs Température
 
 ```
          v1.1.0 (Linéaire)      v1.2.0 (Avancé)
@@ -288,7 +507,7 @@ float V_normalized_25C = battery.removeThermalCorrectionOCV(V_measured_50C, 50.0
 Moyenne: ±3.4%                  ±1.4%     ≈ 2.4× meilleur!
 ```
 
-### **Cas Réel: Batterie Plomb à -10°C**
+### Cas Réel: Batterie Plomb à -10°C
 
 ```
 Avant (v1.1.0):
@@ -326,7 +545,7 @@ battery.ocvToSoc(12.5f, 25.0f);
 
 ## 🧪 RECOMMANDATIONS DE TEST
 
-### **1. Test Linéaire vs Exponentiel**
+### 1. Test Linéaire vs Exponentiel
 
 ```cpp
 void test_thermal_models() {
@@ -342,7 +561,7 @@ void test_thermal_models() {
 }
 ```
 
-### **2. Test RC Thermique**
+### 2. Test RC Thermique
 
 ```cpp
 void test_tau_thermal() {
@@ -358,7 +577,7 @@ void test_tau_thermal() {
 }
 ```
 
-### **3. Test OCV Quadratique**
+### 3. Test OCV Quadratique
 
 ```cpp
 void test_ocv_quadratic() {
@@ -393,14 +612,14 @@ void test_ocv_quadratic() {
 
 ## 🚀 IMPACT RÉEL
 
-### **Applications Bénéficiaires**
+### Applications Bénéficiaires
 
 - ✅ **IoT en extérieur** (-10 à +50°C): Précision +2.5× meilleure
 - ✅ **Robotique froid** (-20°C): Maintenant acceptable
 - ✅ **Systèmes solaires** (grands ΔT journalier): Suivi SoC plus fiable
 - ✅ **Véhicules hivernaux**: Estimation batterie automobile-grade
 
-### **Cas d'Usage**
+### Cas d'Usage
 
 ```cpp
 // Solar system: Temperature varies 0-70°C daily
@@ -410,13 +629,31 @@ void updateSoC(float voltage, float temperature_sensor) {
     // v1.1: Erreur ±3-4% aux extrêmes
     // v1.2: Erreur ±0.8-1.5% partout ✓
     float soc = battery.ocvToSoc(voltage, temperature_sensor);
-    
+
     // Plus fiable pour trigger "low battery" ou charge
     if (soc < 15.0f) {
         startCharging();
     }
 }
 ```
+
+---
+
+## ✨ POINTS FORTS (v1.1, conservés en v1.2)
+
+✅ **Couverture par Technologie**
+- Plomb: β=0.008-0.015 (réaliste)
+- Lithium: β=0.003-0.006 (réaliste)
+- Autres: β=0.004-0.008 (raisonnable)
+
+✅ **Compensation OCV**
+- Tous les coefficients dVocv_dT présents
+- Plages réalistes (-0.0002 à -0.004 V/°C)
+
+✅ **Implémentation**
+- Compensation appliquée dans ocvToSoc()
+- Compensation appliquée dans socToOcv()
+- Compensation appliquée dans correctVoltageToOCV()
 
 ---
 
