@@ -4,10 +4,19 @@
 [![PlatformIO](https://img.shields.io/badge/PlatformIO-Compatible-orange)](https://platformio.org/)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![GitHub release](https://img.shields.io/github/v/release/Fo170/BatteryModels)](https://github.com/Fo170/BatteryModels/releases)
-[![Version](https://img.shields.io/badge/Version-1.3.0-brightgreen.svg)](https://github.com/Fo170/BatteryModels/releases)
+[![Version](https://img.shields.io/badge/Version-1.4.0-brightgreen.svg)](https://github.com/Fo170/BatteryModels/releases)
 
 Bibliothèque complète de modèles paramétriques pour batteries, incluant tables OCV (Open Circuit Voltage), modèle Thévenin dynamique, et **modèles thermiques avancés (Arrhenius exponentiel)** pour 15 technologies différentes. **Header-only**, **PROGMEM-ready** pour AVR, et **cross-platform** (ESP32, ARM, etc.).
 
+> **🚀 v1.4.0 - CONFIGURATION PAR TECHNOLOGIE (DetectionConfig + KalmanTuning)**  
+> Les seuils de détection (dead-band courant, repos OCV, bande V_tol, seuil de cycle) et les  
+> réglages Kalman (P/Q/R, segments ΔAh/ΔSoC, REST_LONG, confiance) sont désormais  
+> **configurables par technologie**, avec surcharge **compile-time** (macros `BATTERYMODELS_*`)  
+> et **runtime** (setters). Hiérarchie : setter runtime > macro > défaut de la technologie.  
+> BatteryKalman v1.6.0 consommera ces réglages via `getKalmanTuning()`.  
+> ✅ **100% backward compatible** — API additive, aucun changement de signature.  
+> Voir [`CHANGELOG.md`](CHANGELOG.md).
+>
 > **🐛 v1.3.0 - CORRECTION DETECTCHARGESTATE (FLOAT)**  
 > Le test `near_float` passe désormais **avant** `in_rest` dans `detectChargeState()`.  
 > Une batterie en float avec un courant < 0,05 A est classée `State_FLOAT` (et non plus `State_REST`),  
@@ -36,6 +45,8 @@ Bibliothèque complète de modèles paramétriques pour batteries, incluant tabl
 - **Conversion bidirectionnelle OCV ↔ SoC** : `ocvToSoc()` et `socToOcv()` avec correction thermique
 - **Coulomb counting avec correction Peukert** : suivi précis de la charge déchargée
 - **Auto-détection de technologie** : analyse de la pente OCV et plage de tension
+- **Seuils de détection configurables par technologie (v1.4.0)** : dead-band courant, repos OCV, bande de tolérance, seuil de cycle — surcharge compile-time (`BATTERYMODELS_*`) et runtime (setters)
+- **Réglages Kalman exposés par technologie (v1.4.0)** : `getKalmanTuning()` (P/Q/R, segments ΔAh/ΔSoC, REST_LONG, confiance) pour BatteryKalman v1.6.0
 - **Détection des états de charge** : identification automatique des phases (Bulk, Absorption, Float, Repos)
 - **Gestion du vieillissement** : comptage de cycles et dérive de capacité
 - **PROGMEM sur AVR** : constantes stockées en mémoire flash, ~1.5 Ko de RAM économisés
@@ -74,8 +85,8 @@ Bibliothèque complète de modèles paramétriques pour batteries, incluant tabl
 | State_BULK | Charge à courant constant |
 | State_ABSORPTION | Charge à tension constante |
 | State_FLOAT | Maintien à 100% |
-| State_REST | Repos (courant < 0.05A) |
-| State_REST_LONG | Repos long (>2h) |
+| State_REST | Repos (courant < dead-band configurée, 0.05A par défaut) |
+| State_REST_LONG | Repos long (durée par technologie, ex. 2h LiFePO4/LTO) |
 
 > **🐛 v1.3.0** : ordre de priorité corrigé dans `detectChargeState()` —
 > `near_float` est testé **avant** `in_rest`. Une batterie maintenue en float
@@ -89,7 +100,7 @@ Bibliothèque complète de modèles paramétriques pour batteries, incluant tabl
 ### Via Arduino Library Manager (Recommended) ⭐
 1. Arduino IDE : `Croquis > Inclure une bibliothèque > Gérer les bibliothèques`
 2. Recherchez `BatteryModels`
-3. Installez la dernière version (1.3.0+)
+3. Installez la dernière version (1.4.0+)
 
 ### Via Arduino IDE (Manual ZIP)
 1. Téléchargez le ZIP depuis [Latest Release](https://github.com/Fo170/BatteryModels/releases)
@@ -98,10 +109,10 @@ Bibliothèque complète de modèles paramétriques pour batteries, incluant tabl
 ### Via PlatformIO (Recommended) ⭐
 Ajoutez à votre `platformio.ini` :
 
-**Pour v1.3.0 (stable):**
+**Pour v1.4.0 (stable):**
 ```ini
 lib_deps =
-    https://github.com/Fo170/BatteryModels.git@^1.3.0
+    https://github.com/Fo170/BatteryModels.git@^1.4.0
 ```
 
 **Ou via le registry:**
@@ -247,6 +258,50 @@ BatteryModel(BatteryTech tech = TECH_AGM, uint8_t cells = 6,
 | `getAbsorptionVoltage()` | Tension absorption totale (V) |
 | `getMinVoltage()` | Tension minimale totale (V) |
 | `getMaxVoltage()` | Tension maximale totale (V) |
+
+### Configuration par technologie (v1.4.0)
+
+**Getters** (références sur cache résolu — hiérarchie : setter runtime > macro > défaut tech) :
+
+| Méthode | Description |
+|---------|-------------|
+| `getDetectionConfig()` | `const DetectionConfig&` — dead-band courant, float min/facteur, V_tol pct/min, repos OCV, seuil cycle |
+| `getKalmanTuning()` | `const KalmanTuning&` — P/Q/R, segments ΔAh/ΔSoC, REST_LONG, confiance (consommé par BatteryKalman v1.6.0) |
+
+**Setters runtime** (priorité la plus haute, `resetOverrides()` pour revenir aux défauts) :
+
+```cpp
+void setCurrentDeadband(float amps);
+void setVoltageTolerance(float pct, float min_V);
+void setFloatCurrentMax(float min_A, float factor);
+void setOcvRestHours(float hours);
+void setCycleThreshold(float pct);
+
+void setKalmanP(float init_C, float min_C, float init_aging, float min_aging);
+void setKalmanQ(float aging_uncertainty, float capacity_drift);
+void setKalmanR(float init, float min, float max, float smooth_alpha);
+void setKalmanSegmentThresholds(float min_dAh_abs, float min_dAh_pct,
+                                float dSoc_boot, float dSoc_coarse, float dSoc_track,
+                                float dSoc_high_conf, bool ocv_allowed);
+void setKalmanBatteryChange(float thr, uint8_t count);
+void setKalmanRestLong(float min_minutes, float stable_mv, float stable_minutes,
+                       uint8_t min_samples, uint8_t max_samples);
+void setKalmanConfidence(float conf_float, float conf_rest_base, float conf_rest_span,
+                         float conf_phase_coarse, float conf_phase_refine);
+void resetOverrides();
+```
+
+**Macros compile-time** (optionnelles, globales — écrasent le défaut par technologie si définies avant `#include`) :
+
+```cpp
+#define BATTERYMODELS_DEADBAND_A 0.03f            // dead-band courant (A)
+#define BATTERYMODELS_FLOAT_CURRENT_MIN_A 0.6f    // I_float_max plancher (A)
+#define BATTERYMODELS_FLOAT_CURRENT_FACTOR 0.02f  // I_float_max = max(min_A, cap×factor)
+#define BATTERYMODELS_V_TOL_PCT 0.015f            // V_tol = max(min_V, V_nom×pct)
+#define BATTERYMODELS_V_TOL_MIN_V 0.1f            // plancher de V_tol (V)
+#define BATTERYMODELS_OCV_REST_HOURS 0.5f         // repos minimum avant OCV (h)
+#define BATTERYMODELS_CYCLE_THR_PCT 0.8f          // seuil de comptage de cycle
+```
 
 ### Auto-détection
 | Méthode | Description |

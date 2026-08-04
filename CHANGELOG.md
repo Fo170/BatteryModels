@@ -4,6 +4,52 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.4.0] - 2026-08-04 - Configuration par technologie (DetectionConfig + KalmanTuning)
+
+### ✨ Added
+
+- **`struct DetectionConfig`** — seuils de détection configurables **par technologie** :
+  - `current_deadband_A` (dead-band courant rest/charge/décharge),
+  - `float_current_min_A` + `float_current_factor` (`I_float_max = max(min_A, cap×factor)`),
+  - `v_tol_pct` + `v_tol_min_V` (bande de tolérance FLOAT/ABSORPTION),
+  - `ocv_rest_hours` (repos minimum avant mesure OCV),
+  - `cycle_thr_pct` (seuil de comptage de cycle).
+- **`struct KalmanTuning`** — réglages Kalman exposés **par technologie** pour BatteryKalman v1.6.0 :
+  - P/Q/R (variance initiale/min, bruit de processus, bruit de mesure + lissage),
+  - segments ΔAh/ΔSoC (`seg_min_dAh_abs`, `seg_min_dAh_pct`, `seg_min_dsoc[3]`, `seg_dsoc_high_conf`, `ocv_segment_allowed`),
+  - détection de batterie changée (`battery_change_thr`/`count`),
+  - porte REST_LONG (`rest_long_min_min`, `rest_long_stable_mv/min`, `rest_long_stable_min/max_samples`),
+  - confiance (`conf_float`, `conf_rest_base/span`, `conf_phase_coarse/refine`).
+- **Champs `detect` + `kalman` dans `TechParams`** : chaque entrée de `TECH_PARAMS[15]` fournit ses valeurs par défaut (voir tableaux §6.1/§6.2 du spec).
+- **Getters** : `getDetectionConfig()`, `getKalmanTuning()` (références sur cache résolu — pas de lecture PROGMEM directe).
+- **12 setters runtime** : `setCurrentDeadband`, `setVoltageTolerance`, `setFloatCurrentMax`, `setOcvRestHours`, `setCycleThreshold`, `setKalmanP/Q/R/SegmentThresholds/BatteryChange/RestLong/Confidence`, + `resetOverrides()`.
+- **Macros compile-time optionnelles** (globales, écrasent le défaut par technologie si définies) :
+  `BATTERYMODELS_DEADBAND_A`, `BATTERYMODELS_FLOAT_CURRENT_MIN_A`, `BATTERYMODELS_FLOAT_CURRENT_FACTOR`, `BATTERYMODELS_V_TOL_PCT`, `BATTERYMODELS_V_TOL_MIN_V`, `BATTERYMODELS_OCV_REST_HOURS`, `BATTERYMODELS_CYCLE_THR_PCT`.
+- **Hiérarchie de résolution** : 1. setter runtime > 2. macro compile-time > 3. défaut de la technologie.
+
+### 🔄 Changed
+
+- `getVoltageToleranceBand()` : `max(v_tol_min_V, V_nom × v_tol_pct)` (au lieu de `max(0.1, V_nom×0.015)`).
+- `detectChargeState()` : dead-band courant et `I_float_max` pilotés par `DetectionConfig` (défauts identiques v1.3 : 0.05 A, `max(0.6, cap×0.02)`).
+- `isOcvMeasurementValid()` : cas spécial LiFePO4 (2 h) remplacé par `ocv_rest_hours` par technologie (LiFePO4/LTO = 2.0, plomb = 1.0, autres = 0.5).
+- `updateCoulombCount()` : seuil de cycle `C_nominal × cycle_thr_pct` (défaut 0.8).
+- `BatteryModels.h` : commentaire de version → v1.4.0.
+- `library.json` : version → 1.4.0, description + keywords mis à jour.
+- `README.md` : badge v1.4.0, section « Configuration par technologie », installation `@^1.4.0`.
+
+### ✅ Backward Compatibility
+
+- **100% compatible** avec v1.3.0 — API **additive uniquement**, aucune signature modifiée.
+- Sans setter ni macro : les valeurs par défaut reproduisent le comportement v1.3, à l'exception des **nouvelles valeurs par technologie** (repos OCV plomb 1.0 h au lieu de 0.5 h, V_tol 1.0 % pour LiFePO4/LTO) — modifications documentées dans le spec.
+
+### 🧪 Validation
+
+- `g++ -fsyntax-only` avec mock `Arduino.h` : header + 4 exemples OK.
+- Tests fonctionnels de la hiérarchie (défaut tech / override runtime / macro / `resetOverrides`) : 25 assertions OK.
+- Régression `detectChargeState()` : FLOAT/REST/DISCHARGE inchangés.
+
+---
+
 ## [1.3.0] - 2026-08-03 - Bug Fix: detectChargeState() FLOAT
 
 ### 🐛 Fixed

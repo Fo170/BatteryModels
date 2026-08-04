@@ -2,13 +2,18 @@
 #define BATTERY_MODELS_H
 
 /*
-  BatteryModels v1.3.0 - Modèles paramétriques avancés pour batteries
+  BatteryModels v1.4.0 - Modèles paramétriques avancés pour batteries
 
   🔗 COMPATIBILITÉ : Cette bibliothèque est entièrement compatible avec BatteryKalman
   (https://github.com/Fo170/BatteryKalman) pour une fusion optimale d'estimations SoC
   via filtre de Kalman adaptatif. BatteryKalman v1.5.3 intègre les corrections
   (dont detectChargeState FLOAT) et s'appuie sur les modèles physiques de BatteryModels.
   Voir README.md pour plus de détails.
+
+  NOUVEAU v1.4.0: seuils de détection (DetectionConfig) et réglages Kalman (KalmanTuning)
+  configurables PAR TECHNOLOGIE, avec surcharge compile-time (macros BATTERYMODELS_*)
+  et runtime (setters). Hiérarchie: setter runtime > macro > défaut de la technologie.
+  API additive, 100% rétro-compatible avec v1.3.0.
 
   Cette bibliothèque fourrit les modèles physiques (OCV, Thévenin, Arrhenius thermique)
   que BatteryKalman utilise comme base pour son estimation de Kalman.
@@ -38,6 +43,36 @@
     #define BATT_READ_PTR(addr)    (*(const void* const*)(addr))
     #define BATT_STRCPY_P(dest, src)  strcpy(dest, *(const char* const*)(src))
     #define BATT_MEMCPY_P(dest, src, n) memcpy(dest, src, n)
+#endif
+
+// ============================================================
+// SURCHARGE COMPILE-TIME (OPTIONNELLE, GLOBALE) — v1.4.0
+// ============================================================
+// Toutes les macros sont optionnelles et GLOBALES : elles écrasent
+// le réglage par défaut de la technologie si (et seulement si) elles
+// sont définies par l'utilisateur avant #include. Par défaut = NAN
+// ("non défini") → le défaut de la technologie s'applique.
+// Hiérarchie de résolution : 1. setter runtime > 2. macro > 3. défaut tech.
+#ifndef BATTERYMODELS_DEADBAND_A
+#define BATTERYMODELS_DEADBAND_A         NAN
+#endif
+#ifndef BATTERYMODELS_FLOAT_CURRENT_MIN_A
+#define BATTERYMODELS_FLOAT_CURRENT_MIN_A NAN
+#endif
+#ifndef BATTERYMODELS_FLOAT_CURRENT_FACTOR
+#define BATTERYMODELS_FLOAT_CURRENT_FACTOR NAN
+#endif
+#ifndef BATTERYMODELS_V_TOL_PCT
+#define BATTERYMODELS_V_TOL_PCT          NAN
+#endif
+#ifndef BATTERYMODELS_V_TOL_MIN_V
+#define BATTERYMODELS_V_TOL_MIN_V        NAN
+#endif
+#ifndef BATTERYMODELS_OCV_REST_HOURS
+#define BATTERYMODELS_OCV_REST_HOURS     NAN
+#endif
+#ifndef BATTERYMODELS_CYCLE_THR_PCT
+#define BATTERYMODELS_CYCLE_THR_PCT      NAN
 #endif
 
 // ============================================================
@@ -121,6 +156,70 @@ struct OcvPoly {
     float A, B, C;
 };
 
+// ============================================================
+// CONFIGURATION DE DETECTION PAR TECHNOLOGIE — NOUVEAU v1.4.0
+// ============================================================
+// Seuils de détection configurés par technologie (voir changements_a_effectuer_sur_BatteryModels.md §6.1).
+struct DetectionConfig {
+    float current_deadband_A;   // Dead-band courant rest/charge/décharge (A)
+    float float_current_min_A;  // I_float_max = max(float_current_min_A, cap*float_current_factor)
+    float float_current_factor; // Facteur capacité pour I_float_max (défaut 0.02)
+    float v_tol_pct;            // Fraction de V_nom pour V_tol (défaut 0.015)
+    float v_tol_min_V;          // Valeur plancher de V_tol (défaut 0.1 V)
+    float ocv_rest_hours;       // Repos minimum avant mesure OCV (h)
+    float cycle_thr_pct;        // Seuil de comptage cycle (fraction de C_nom, défaut 0.8)
+};
+
+// ============================================================
+// REGLAGES KALMAN PAR TECHNOLOGIE — NOUVEAU v1.4.0
+// ============================================================
+// Jeu de paramètres Kalman (P/Q/R, segments ΔAh/ΔSoC, REST_LONG, confiance)
+// que BatteryKalman consomme comme valeurs par défaut par technologie
+// (voir changements_a_effectuer_sur_BatteryKalman.md). BatteryModels ne fait
+// qu'EXPOSER ces valeurs — c'est BatteryKalman qui les consomme.
+struct KalmanTuning {
+    // --- P : covariance de l'erreur (état [C_hat, dC_dCycle]) ---
+    float p_init_C;             // Variance initiale pour C (Ah²)
+    float p_min_C;              // Variance minimale pour C (Ah²)
+    float p_init_aging;         // Variance initiale pour dC/dCycle
+    float p_min_aging;          // Variance minimale pour aging
+
+    // --- Q : bruit de processus ---
+    float q_aging_uncertainty;  // Incertitude sur le taux aging
+    float q_capacity_drift;     // Dérive de capacité entre cycles
+
+    // --- R : bruit de mesure (estimation en ligne) ---
+    float r_init;               // R initial
+    float r_min;                // R minimum
+    float r_max;                // R maximum
+    float r_smooth_alpha;       // Lissage exponentiel de R_estimate
+
+    // --- Segments ΔAh / ΔSoC (apprentissage de capacité) ---
+    float seg_min_dAh_abs;      // Seuil absolu minimal (Ah)
+    float seg_min_dAh_pct;      // Seuil relatif minimal (% de C) — NOUVEAU
+    float seg_min_dsoc[3];      // {bootstrap, coarse, refine/track} (% SoC)
+    float seg_dsoc_high_conf;   // dSoC pour confiance élevée (%)
+    bool  ocv_segment_allowed;  // false => pas de segment OCV (NiFe, Sodium)
+
+    // --- Détection de batterie changée ---
+    float   battery_change_thr;     // Écart relatif (% de C_hat)
+    uint8_t battery_change_count;   // Nombre d'outliers consécutifs
+
+    // --- Porte de stabilité REST_LONG (référence OCV fiable) ---
+    float   rest_long_min_min;          // Repos minimum (min)
+    float   rest_long_stable_mv;        // Écart tension crête toléré (V)
+    float   rest_long_stable_min;       // Fenêtre de stabilité (min)
+    uint8_t rest_long_stable_min_samples; // Nb min d'échantillons dans la fenêtre
+    uint8_t rest_long_stable_max_samples; // Taille max de l'anneau
+
+    // --- Confiance ---
+    float conf_float;           // Confiance segment FLOAT (0.95)
+    float conf_rest_base;       // Confiance REST_LONG de base (0.70)
+    float conf_rest_span;       // Bonus de stabilité REST_LONG (0.15)
+    float conf_phase_coarse;    // Seuil phase COARSE (0.3)
+    float conf_phase_refine;    // Seuil phase REFINE (0.6)
+};
+
 struct TechParams {
     OcvPoly ocv;
     float   R25_mOhm;
@@ -145,6 +244,10 @@ struct TechParams {
                                  // 0 = constant; typical 0.01-0.05
     float   d2Vocv_dT2;          // Quadratic OCV/T coeff (V/°C²)
                                  // Refines V(T) = V0 + dVocv_dT*ΔT + d2Vocv_dT2*ΔT²
+
+    // ===== NEW v1.4.0: Detection & Kalman tuning =====
+    DetectionConfig detect;      // Seuils de détection par technologie
+    KalmanTuning    kalman;      // Réglages Kalman par technologie
 };
 
 // ============================================================
@@ -262,7 +365,12 @@ static const TechParams TECH_PARAMS[TECH_COUNT] BATT_PROGMEM = {
         {0.005714f, 0.131086f, 1.982714f},
         10.0f, 0.012f, 0.5f, 3.0f, 1.5f, 3.5f, 1.20f, -0.0039f,
         2.30f, 2.45f, 1.75f, 2.50f, 10.0f, true,
-        2500.0f, 0.02f, -5e-6f  // E_a_R, alpha_tau, d2Vocv_dT2
+        2500.0f, 0.02f, -5e-6f, // E_a_R, alpha_tau, d2Vocv_dT2
+        {0.05f, 0.6f, 0.02f, 0.015f, 0.1f, 0.5f, 0.8f},  // detect
+        {500.0f, 0.10f, 1e-6f, 1e-7f, 2e-6f, 0.010f, 4.0f, 0.5f, 100.0f, 0.1f,
+         0.20f, 0.5f, {3.0f, 5.0f, 8.0f}, 15.0f, true,
+         0.30f, 3, 15.0f, 0.020f, 30.0f, 6, 32,
+         0.95f, 0.70f, 0.15f, 0.3f, 0.6f}  // kalman
     },
     // TECH_FLOODED (1) - Plomb inonde (forte dependance SoC)
     // CORRIGÉ: V_float 2.30→2.37V (norme IEC 61427, permet charge complète)
@@ -270,14 +378,24 @@ static const TechParams TECH_PARAMS[TECH_COUNT] BATT_PROGMEM = {
         {0.017143f, 0.109657f, 1.981743f},
         15.0f, 0.015f, 0.5f, 4.0f, 2.0f, 4.0f, 1.40f, -0.0037f,
         2.37f, 2.45f, 1.75f, 2.50f, 18.0f, true,
-        3500.0f, 0.04f, -8e-6f  // E_a_R, alpha_tau, d2Vocv_dT2
+        3500.0f, 0.04f, -8e-6f, // E_a_R, alpha_tau, d2Vocv_dT2
+        {0.05f, 0.6f, 0.02f, 0.015f, 0.1f, 1.0f, 0.8f},  // detect
+        {600.0f, 0.10f, 1e-6f, 1e-7f, 2e-6f, 0.030f, 6.0f, 0.5f, 100.0f, 0.1f,
+         0.20f, 0.5f, {3.0f, 5.0f, 8.0f}, 15.0f, true,
+         0.30f, 3, 15.0f, 0.030f, 30.0f, 6, 32,
+         0.95f, 0.70f, 0.15f, 0.3f, 0.6f}  // kalman
     },
     // TECH_AGM (2) - Plomb AGM
     {
         {-0.001143f, 0.147943f, 1.984657f},
         8.0f, 0.008f, 0.5f, 2.0f, 1.0f, 2.5f, 1.10f, -0.0040f,
         2.30f, 2.45f, 1.80f, 2.45f, 15.0f, true,
-        3200.0f, 0.03f, -7e-6f  // E_a_R, alpha_tau, d2Vocv_dT2
+        3200.0f, 0.03f, -7e-6f, // E_a_R, alpha_tau, d2Vocv_dT2
+        {0.05f, 0.6f, 0.02f, 0.015f, 0.1f, 1.0f, 0.8f},  // detect
+        {500.0f, 0.10f, 1e-6f, 1e-7f, 2e-6f, 0.025f, 5.0f, 0.5f, 100.0f, 0.1f,
+         0.20f, 0.5f, {3.0f, 5.0f, 8.0f}, 15.0f, true,
+         0.30f, 3, 15.0f, 0.030f, 30.0f, 6, 32,
+         0.95f, 0.70f, 0.15f, 0.3f, 0.6f}  // kalman
     },
     // TECH_GEL (3) - Plomb Gel
     // CORRIGÉ: V_float 2.30→2.37V (GEL strict sur voltage pour éviter migration électrolyte)
@@ -285,35 +403,60 @@ static const TechParams TECH_PARAMS[TECH_COUNT] BATT_PROGMEM = {
         {-0.038857f, 0.198857f, 1.986743f},
         12.0f, 0.012f, 0.6f, 3.0f, 1.5f, 3.0f, 1.20f, -0.0040f,
         2.37f, 2.43f, 1.80f, 2.45f, 16.0f, true,
-        3300.0f, 0.035f, -7e-6f  // E_a_R, alpha_tau, d2Vocv_dT2
+        3300.0f, 0.035f, -7e-6f, // E_a_R, alpha_tau, d2Vocv_dT2
+        {0.05f, 0.6f, 0.02f, 0.015f, 0.1f, 1.0f, 0.8f},  // detect
+        {500.0f, 0.10f, 1e-6f, 1e-7f, 2e-6f, 0.025f, 5.0f, 0.5f, 100.0f, 0.1f,
+         0.20f, 0.5f, {3.0f, 5.0f, 8.0f}, 15.0f, true,
+         0.30f, 3, 15.0f, 0.030f, 30.0f, 6, 32,
+         0.95f, 0.70f, 0.15f, 0.3f, 0.6f}  // kalman
     },
     // TECH_LIFEPO4 (4) - Lithium (faible dependance SoC)
     {
         {-0.400000f, 1.200000f, 2.800000f},
         5.0f, 0.003f, 0.3f, 1.0f, 0.5f, 2.0f, 1.05f, -0.0005f,
         3.45f, 3.65f, 2.80f, 3.65f, 6.0f, true,
-        1500.0f, 0.008f, -2e-6f  // E_a_R, alpha_tau, d2Vocv_dT2
+        1500.0f, 0.008f, -2e-6f, // E_a_R, alpha_tau, d2Vocv_dT2
+        {0.05f, 0.6f, 0.02f, 0.010f, 0.1f, 2.0f, 0.8f},  // detect (plateau plat → repos OCV 2h)
+        {300.0f, 0.10f, 1e-6f, 1e-7f, 2e-6f, 0.008f, 8.0f, 0.5f, 100.0f, 0.1f,
+         0.20f, 0.5f, {5.0f, 8.0f, 10.0f}, 15.0f, true,
+         0.30f, 3, 15.0f, 0.020f, 30.0f, 6, 32,
+         0.95f, 0.70f, 0.15f, 0.3f, 0.6f}  // kalman
     },
     // TECH_LION (5) - Lithium Ion
     {
         {-0.800000f, 2.000000f, 3.000000f},
         3.0f, 0.005f, 0.3f, 0.8f, 0.5f, 2.0f, 1.02f, -0.0003f,
         4.10f, 4.20f, 3.00f, 4.20f, 7.0f, true,
-        1800.0f, 0.009f, -3e-6f  // E_a_R, alpha_tau, d2Vocv_dT2
+        1800.0f, 0.009f, -3e-6f, // E_a_R, alpha_tau, d2Vocv_dT2
+        {0.05f, 0.6f, 0.02f, 0.015f, 0.1f, 0.5f, 0.8f},  // detect
+        {200.0f, 0.10f, 1e-6f, 1e-7f, 2e-6f, 0.005f, 3.0f, 0.5f, 100.0f, 0.1f,
+         0.20f, 0.5f, {2.0f, 3.0f, 5.0f}, 15.0f, true,
+         0.30f, 3, 15.0f, 0.020f, 30.0f, 6, 32,
+         0.95f, 0.70f, 0.15f, 0.3f, 0.6f}  // kalman
     },
     // TECH_LIPO (6) - Lithium Polymere
     {
         {-0.880000f, 2.080000f, 3.000000f},
         2.5f, 0.004f, 0.25f, 0.6f, 0.4f, 1.5f, 1.01f, -0.0002f,
         4.15f, 4.20f, 3.00f, 4.20f, 6.5f, true,
-        1700.0f, 0.007f, -2e-6f  // E_a_R, alpha_tau, d2Vocv_dT2
+        1700.0f, 0.007f, -2e-6f, // E_a_R, alpha_tau, d2Vocv_dT2
+        {0.05f, 0.6f, 0.02f, 0.015f, 0.1f, 0.5f, 0.8f},  // detect
+        {200.0f, 0.10f, 1e-6f, 1e-7f, 2e-6f, 0.005f, 3.0f, 0.5f, 100.0f, 0.1f,
+         0.20f, 0.5f, {2.0f, 3.0f, 5.0f}, 15.0f, true,
+         0.30f, 3, 15.0f, 0.020f, 30.0f, 6, 32,
+         0.95f, 0.70f, 0.15f, 0.3f, 0.6f}  // kalman
     },
     // TECH_LTO (7) - Lithium Titanate
     {
         {-0.200000f, 1.100000f, 1.900000f},
         4.0f, 0.006f, 0.35f, 1.2f, 0.6f, 2.5f, 1.03f, -0.0010f,
         2.70f, 2.80f, 1.90f, 2.80f, 6.0f, true,
-        1900.0f, 0.010f, -3e-6f  // E_a_R, alpha_tau, d2Vocv_dT2
+        1900.0f, 0.010f, -3e-6f, // E_a_R, alpha_tau, d2Vocv_dT2
+        {0.05f, 0.6f, 0.02f, 0.010f, 0.1f, 2.0f, 0.8f},  // detect (plateau plat → repos OCV 2h)
+        {300.0f, 0.10f, 1e-6f, 1e-7f, 2e-6f, 0.006f, 7.0f, 0.5f, 100.0f, 0.1f,
+         0.20f, 0.5f, {5.0f, 8.0f, 10.0f}, 15.0f, true,
+         0.30f, 3, 15.0f, 0.020f, 30.0f, 6, 32,
+         0.95f, 0.70f, 0.15f, 0.3f, 0.6f}  // kalman
     },
     // TECH_LMNO (8) - Lithium Manganese
     // CORRIGÉ: V_abs 4.30→4.20V (limite de structure spinelle Mn, >4.25V = perte O₂ et dissolution Mn)
@@ -321,21 +464,36 @@ static const TechParams TECH_PARAMS[TECH_COUNT] BATT_PROGMEM = {
         {-0.600000f, 1.900000f, 3.000000f},
         3.5f, 0.005f, 0.3f, 0.9f, 0.5f, 2.0f, 1.02f, -0.0004f,
         4.15f, 4.20f, 3.00f, 4.20f, 7.0f, true,
-        1800.0f, 0.009f, -3e-6f  // E_a_R, alpha_tau, d2Vocv_dT2
+        1800.0f, 0.009f, -3e-6f, // E_a_R, alpha_tau, d2Vocv_dT2
+        {0.05f, 0.6f, 0.02f, 0.015f, 0.1f, 0.5f, 0.8f},  // detect
+        {200.0f, 0.10f, 1e-6f, 1e-7f, 2e-6f, 0.005f, 3.0f, 0.5f, 100.0f, 0.1f,
+         0.20f, 0.5f, {2.0f, 3.0f, 5.0f}, 15.0f, true,
+         0.30f, 3, 15.0f, 0.020f, 30.0f, 6, 32,
+         0.95f, 0.70f, 0.15f, 0.3f, 0.6f}  // kalman
     },
     // TECH_NMC (9) - Nickel Manganese Cobalt
     {
         {-0.800000f, 2.000000f, 3.000000f},
         3.2f, 0.005f, 0.32f, 0.85f, 0.55f, 2.2f, 1.02f, -0.00035f,
         4.10f, 4.20f, 3.00f, 4.20f, 7.0f, true,
-        1850.0f, 0.009f, -3e-6f  // E_a_R, alpha_tau, d2Vocv_dT2
+        1850.0f, 0.009f, -3e-6f, // E_a_R, alpha_tau, d2Vocv_dT2
+        {0.05f, 0.6f, 0.02f, 0.015f, 0.1f, 0.5f, 0.8f},  // detect
+        {200.0f, 0.10f, 1e-6f, 1e-7f, 2e-6f, 0.005f, 3.0f, 0.5f, 100.0f, 0.1f,
+         0.20f, 0.5f, {2.0f, 3.0f, 5.0f}, 15.0f, true,
+         0.30f, 3, 15.0f, 0.020f, 30.0f, 6, 32,
+         0.95f, 0.70f, 0.15f, 0.3f, 0.6f}  // kalman
     },
     // TECH_NCA (10) - Nickel Cobalt Aluminium
     {
         {-0.800000f, 2.000000f, 3.000000f},
         3.0f, 0.005f, 0.3f, 0.8f, 0.5f, 2.0f, 1.02f, -0.0003f,
         4.10f, 4.20f, 3.00f, 4.20f, 7.0f, true,
-        1800.0f, 0.009f, -3e-6f  // E_a_R, alpha_tau, d2Vocv_dT2
+        1800.0f, 0.009f, -3e-6f, // E_a_R, alpha_tau, d2Vocv_dT2
+        {0.05f, 0.6f, 0.02f, 0.015f, 0.1f, 0.5f, 0.8f},  // detect
+        {200.0f, 0.10f, 1e-6f, 1e-7f, 2e-6f, 0.005f, 3.0f, 0.5f, 100.0f, 0.1f,
+         0.20f, 0.5f, {2.0f, 3.0f, 5.0f}, 15.0f, true,
+         0.30f, 3, 15.0f, 0.020f, 30.0f, 6, 32,
+         0.95f, 0.70f, 0.15f, 0.3f, 0.6f}  // kalman
     },
     // TECH_NIFE (11) - Nickel-Fer (Edison) (forte dependance)
     // CORRIGÉ: OCV polynomial recalibré (ancien était ~0.3V trop bas)
@@ -344,21 +502,36 @@ static const TechParams TECH_PARAMS[TECH_COUNT] BATT_PROGMEM = {
         {0.1f, 0.35f, 1.0f},
         20.0f, 0.008f, 0.4f, 5.0f, 2.0f, 5.0f, 1.15f, -0.0015f,
         1.45f, 1.55f, 1.10f, 1.60f, 12.0f, true,
-        2800.0f, 0.05f, -5e-6f  // E_a_R, alpha_tau, d2Vocv_dT2
+        2800.0f, 0.05f, -5e-6f, // E_a_R, alpha_tau, d2Vocv_dT2
+        {0.05f, 0.6f, 0.02f, 0.020f, 0.1f, 1.0f, 0.8f},  // detect (OCV peu fiable → tolérance large)
+        {800.0f, 0.10f, 1e-6f, 1e-7f, 2e-6f, 0.030f, 12.0f, 0.5f, 100.0f, 0.1f,
+         0.20f, 0.5f, {3.0f, 5.0f, 8.0f}, 15.0f, false,
+         0.30f, 3, 15.0f, 0.050f, 30.0f, 6, 32,
+         0.95f, 0.70f, 0.15f, 0.3f, 0.6f}  // kalman (pas de segment OCV)
     },
     // TECH_SODIUM (12) - Sodium Ion (faible dependance)
     {
         {-1.300000f, 3.250000f, 2.000000f},
         2.5f, 0.004f, 0.28f, 0.7f, 0.45f, 1.8f, 1.01f, -0.0003f,
         3.80f, 3.95f, 2.00f, 3.95f, 6.0f, true,
-        1600.0f, 0.008f, -2e-6f  // E_a_R, alpha_tau, d2Vocv_dT2
+        1600.0f, 0.008f, -2e-6f, // E_a_R, alpha_tau, d2Vocv_dT2
+        {0.05f, 0.6f, 0.02f, 0.015f, 0.1f, 1.0f, 0.8f},  // detect
+        {300.0f, 0.10f, 1e-6f, 1e-7f, 2e-6f, 0.008f, 8.0f, 0.5f, 100.0f, 0.1f,
+         0.20f, 0.5f, {3.0f, 5.0f, 8.0f}, 15.0f, false,
+         0.30f, 3, 15.0f, 0.020f, 30.0f, 6, 32,
+         0.95f, 0.70f, 0.15f, 0.3f, 0.6f}  // kalman (pas de segment OCV)
     },
     // TECH_NIMH (13) - Nickel-Metal Hydride (Rechargeable AA/AAA) - NOUVEAU
     {
         {-0.350000f, 1.100000f, 1.400000f},
         6.0f, 0.004f, 0.4f, 2.5f, 1.2f, 3.0f, 1.15f, -0.0004f,
         1.40f, 1.50f, 0.90f, 1.55f, 8.0f, true,
-        2600.0f, 0.025f, -4e-6f  // E_a_R, alpha_tau, d2Vocv_dT2
+        2600.0f, 0.025f, -4e-6f, // E_a_R, alpha_tau, d2Vocv_dT2
+        {0.05f, 0.6f, 0.02f, 0.015f, 0.1f, 1.0f, 0.8f},  // detect
+        {400.0f, 0.10f, 1e-6f, 1e-7f, 2e-6f, 0.015f, 6.0f, 0.5f, 100.0f, 0.1f,
+         0.20f, 1.0f, {4.0f, 6.0f, 8.0f}, 15.0f, true,
+         0.30f, 3, 15.0f, 0.030f, 30.0f, 6, 32,
+         0.95f, 0.70f, 0.15f, 0.3f, 0.6f}  // kalman (petite capacité → seuil ΔAh relatif 1%)
     },
     // TECH_ALKALINE (14) - Alkaline Primary (AA/AAA) - NOUVEAU
     // Mode: Read-only (décharge seule), no charging curve
@@ -366,7 +539,12 @@ static const TechParams TECH_PARAMS[TECH_COUNT] BATT_PROGMEM = {
         {-0.200000f, 0.850000f, 1.600000f},
         8.0f, 0.005f, 0.3f, 2.0f, 0.8f, 2.0f, 1.10f, -0.0002f,
         1.50f, 1.55f, 0.90f, 1.55f, 6.0f, false,
-        1700.0f, 0.015f, -2e-6f  // E_a_R, alpha_tau, d2Vocv_dT2
+        1700.0f, 0.015f, -2e-6f, // E_a_R, alpha_tau, d2Vocv_dT2
+        {0.05f, 0.6f, 0.02f, 0.015f, 0.1f, 1.0f, 0.8f},  // detect
+        {400.0f, 0.10f, 1e-6f, 1e-7f, 2e-6f, 0.010f, 6.0f, 0.5f, 100.0f, 0.1f,
+         0.20f, 1.0f, {4.0f, 6.0f, 8.0f}, 15.0f, true,
+         0.30f, 3, 15.0f, 0.030f, 30.0f, 6, 32,
+         0.95f, 0.70f, 0.15f, 0.3f, 0.6f}  // kalman (décharge seule, seuil ΔAh relatif 1%)
     },
 };
 
@@ -392,6 +570,33 @@ private:
     mutable TechParams _paramsCache;
     mutable bool _paramsCached = false;
 
+    // ===== NOUVEAU v1.4.0: overrides runtime (sentinelle NAN = "non surchargé") =====
+    mutable DetectionConfig _detectOverride = overrideDetectionNone();
+    mutable KalmanTuning    _kalmanOverride = overrideKalmanNone();
+    mutable bool            _ocvSegmentAllowedSet = false;  // tri-state pour le bool ocv_segment_allowed
+    mutable DetectionConfig _detectResolved;
+    mutable KalmanTuning    _kalmanResolved;
+    mutable bool            _configDirty = true;
+
+    // Fabrique des sentinelles "non surchargé" (NAN pour les floats, 0 pour les uint8_t)
+    static DetectionConfig overrideDetectionNone() {
+        DetectionConfig c = {NAN, NAN, NAN, NAN, NAN, NAN, NAN};
+        return c;
+    }
+    static KalmanTuning overrideKalmanNone() {
+        KalmanTuning k = {NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN,
+                          NAN, NAN, {NAN, NAN, NAN}, NAN, false,
+                          NAN, 0, NAN, NAN, NAN, 0, 0,
+                          NAN, NAN, NAN, NAN, NAN};
+        return k;
+    }
+    // Résolution d'un champ : 1. override runtime > 2. macro > 3. défaut tech
+    static inline float resolveVal(float def, float macroVal, float ovr) {
+        if (!isnan(ovr))      return ovr;
+        if (!isnan(macroVal)) return macroVal;
+        return def;
+    }
+
     // Lecture PROGMEM d'un float dans une table 2D
     static inline float readTableFloat(const float (*tbl)[2], int row, int col) {
         return BATT_READ_FLOAT(&tbl[row][col]);
@@ -405,6 +610,54 @@ private:
             _paramsCached = true;
         }
         return _paramsCache;
+    }
+
+    // ===== NOUVEAU v1.4.0: résolution hiérarchique de la config =====
+    // 1. override runtime (setter) > 2. macro compile-time > 3. défaut technologie
+    void resolveConfig() const {
+        const DetectionConfig& d = getParams().detect;
+        DetectionConfig r;
+        r.current_deadband_A    = resolveVal(d.current_deadband_A,    BATTERYMODELS_DEADBAND_A,           _detectOverride.current_deadband_A);
+        r.float_current_min_A   = resolveVal(d.float_current_min_A,   BATTERYMODELS_FLOAT_CURRENT_MIN_A,  _detectOverride.float_current_min_A);
+        r.float_current_factor  = resolveVal(d.float_current_factor,  BATTERYMODELS_FLOAT_CURRENT_FACTOR, _detectOverride.float_current_factor);
+        r.v_tol_pct             = resolveVal(d.v_tol_pct,             BATTERYMODELS_V_TOL_PCT,            _detectOverride.v_tol_pct);
+        r.v_tol_min_V           = resolveVal(d.v_tol_min_V,           BATTERYMODELS_V_TOL_MIN_V,          _detectOverride.v_tol_min_V);
+        r.ocv_rest_hours        = resolveVal(d.ocv_rest_hours,        BATTERYMODELS_OCV_REST_HOURS,       _detectOverride.ocv_rest_hours);
+        r.cycle_thr_pct         = resolveVal(d.cycle_thr_pct,         BATTERYMODELS_CYCLE_THR_PCT,        _detectOverride.cycle_thr_pct);
+        _detectResolved = r;
+
+        KalmanTuning kt = getParams().kalman;   // base = défaut par technologie
+        if (!isnan(_kalmanOverride.p_init_C))            kt.p_init_C = _kalmanOverride.p_init_C;
+        if (!isnan(_kalmanOverride.p_min_C))             kt.p_min_C = _kalmanOverride.p_min_C;
+        if (!isnan(_kalmanOverride.p_init_aging))        kt.p_init_aging = _kalmanOverride.p_init_aging;
+        if (!isnan(_kalmanOverride.p_min_aging))         kt.p_min_aging = _kalmanOverride.p_min_aging;
+        if (!isnan(_kalmanOverride.q_aging_uncertainty)) kt.q_aging_uncertainty = _kalmanOverride.q_aging_uncertainty;
+        if (!isnan(_kalmanOverride.q_capacity_drift))    kt.q_capacity_drift = _kalmanOverride.q_capacity_drift;
+        if (!isnan(_kalmanOverride.r_init))              kt.r_init = _kalmanOverride.r_init;
+        if (!isnan(_kalmanOverride.r_min))               kt.r_min = _kalmanOverride.r_min;
+        if (!isnan(_kalmanOverride.r_max))               kt.r_max = _kalmanOverride.r_max;
+        if (!isnan(_kalmanOverride.r_smooth_alpha))      kt.r_smooth_alpha = _kalmanOverride.r_smooth_alpha;
+        if (!isnan(_kalmanOverride.seg_min_dAh_abs))     kt.seg_min_dAh_abs = _kalmanOverride.seg_min_dAh_abs;
+        if (!isnan(_kalmanOverride.seg_min_dAh_pct))     kt.seg_min_dAh_pct = _kalmanOverride.seg_min_dAh_pct;
+        if (!isnan(_kalmanOverride.seg_min_dsoc[0]))     kt.seg_min_dsoc[0] = _kalmanOverride.seg_min_dsoc[0];
+        if (!isnan(_kalmanOverride.seg_min_dsoc[1]))     kt.seg_min_dsoc[1] = _kalmanOverride.seg_min_dsoc[1];
+        if (!isnan(_kalmanOverride.seg_min_dsoc[2]))     kt.seg_min_dsoc[2] = _kalmanOverride.seg_min_dsoc[2];
+        if (!isnan(_kalmanOverride.seg_dsoc_high_conf))  kt.seg_dsoc_high_conf = _kalmanOverride.seg_dsoc_high_conf;
+        if (_ocvSegmentAllowedSet)                       kt.ocv_segment_allowed = _kalmanOverride.ocv_segment_allowed;
+        if (!isnan(_kalmanOverride.battery_change_thr))  kt.battery_change_thr = _kalmanOverride.battery_change_thr;
+        if (_kalmanOverride.battery_change_count != 0)   kt.battery_change_count = _kalmanOverride.battery_change_count;
+        if (!isnan(_kalmanOverride.rest_long_min_min))   kt.rest_long_min_min = _kalmanOverride.rest_long_min_min;
+        if (!isnan(_kalmanOverride.rest_long_stable_mv)) kt.rest_long_stable_mv = _kalmanOverride.rest_long_stable_mv;
+        if (!isnan(_kalmanOverride.rest_long_stable_min)) kt.rest_long_stable_min = _kalmanOverride.rest_long_stable_min;
+        if (_kalmanOverride.rest_long_stable_min_samples != 0) kt.rest_long_stable_min_samples = _kalmanOverride.rest_long_stable_min_samples;
+        if (_kalmanOverride.rest_long_stable_max_samples != 0) kt.rest_long_stable_max_samples = _kalmanOverride.rest_long_stable_max_samples;
+        if (!isnan(_kalmanOverride.conf_float))          kt.conf_float = _kalmanOverride.conf_float;
+        if (!isnan(_kalmanOverride.conf_rest_base))      kt.conf_rest_base = _kalmanOverride.conf_rest_base;
+        if (!isnan(_kalmanOverride.conf_rest_span))      kt.conf_rest_span = _kalmanOverride.conf_rest_span;
+        if (!isnan(_kalmanOverride.conf_phase_coarse))   kt.conf_phase_coarse = _kalmanOverride.conf_phase_coarse;
+        if (!isnan(_kalmanOverride.conf_phase_refine))   kt.conf_phase_refine = _kalmanOverride.conf_phase_refine;
+        _kalmanResolved = kt;
+        _configDirty = false;
     }
 
     float calculateRsocWithSaturation(float s_ref, float gamma_soc, float max_ratio) const {
@@ -774,24 +1027,26 @@ public:
     float getVoltageToleranceBand() const {
         float V_nom = getNominalVoltage();
         if (V_nom <= 0.0f) return 0.2f;
-        return max(0.1f, V_nom * 0.015f);
+        const DetectionConfig& d = getDetectionConfig();
+        return max(d.v_tol_min_V, V_nom * d.v_tol_pct);
     }
 
     ChargeState detectChargeState(float voltage, float current,
                                    float capacity = -1.0f) const {
         const TechParams& tp = getParams();
+        const DetectionConfig& d = getDetectionConfig();
 
         float cap = (capacity > 0.0f) ? capacity : C_nominal;
         if (cap <= 0.0f) cap = 100.0f;
 
         float V_float_ref = tp.V_float_per_cell * n_cells;
         float V_abs_ref = tp.V_abs_per_cell * n_cells;
-        float I_float_max = max(0.6f, cap * 0.02f);
+        float I_float_max = max(d.float_current_min_A, cap * d.float_current_factor);
         float V_tol = getVoltageToleranceBand();
 
-        bool in_rest = (fabsf(current) < 0.05f);
-        bool charging = (current > 0.05f);
-        bool discharging = (current < -0.05f);
+        bool in_rest = (fabsf(current) < d.current_deadband_A);
+        bool charging = (current > d.current_deadband_A);
+        bool discharging = (current < -d.current_deadband_A);
 
         bool near_abs = (voltage >= V_abs_ref - V_tol) && (voltage <= V_abs_ref + V_tol);
         bool near_float = (voltage >= V_float_ref - V_tol) && (voltage <= V_float_ref + V_tol * 0.5f);
@@ -851,7 +1106,7 @@ public:
         last_charge_delta_Ah = current * dt_hours * peukert_ratio;
         accumulated_charge_Ah += last_charge_delta_Ah;
 
-        if (fabsf(accumulated_charge_Ah) >= C_nominal * 0.8f) {
+        if (fabsf(accumulated_charge_Ah) >= C_nominal * getDetectionConfig().cycle_thr_pct) {
             cycle_count++;
             accumulated_charge_Ah = 0.0f;
         }
@@ -900,15 +1155,117 @@ public:
 
     bool isOcvMeasurementValid(float current, float dt_rest_hours = 0.0f) const {
         if (!isOcvReliable()) return false;
-        if (fabsf(current) > 0.05f) return false;
-        if (dt_rest_hours < 0.5f && tech != TECH_LIFEPO4) return false;
-        if (dt_rest_hours < 2.0f && tech == TECH_LIFEPO4) return false;
+        const DetectionConfig& d = getDetectionConfig();
+        if (fabsf(current) > d.current_deadband_A) return false;
+        if (dt_rest_hours < d.ocv_rest_hours) return false;
         return true;
     }
 
     // ============================================================
     // GETTERS / SETTERS
     // ============================================================
+
+    // ===== NOUVEAU v1.4.0: config de détection + réglages Kalman =====
+    // Retournent une référence sur un cache résolu (pas sur PROGMEM),
+    // selon la hiérarchie : setter runtime > macro > défaut de la technologie.
+    const DetectionConfig& getDetectionConfig() const {
+        if (_configDirty) resolveConfig();
+        return _detectResolved;
+    }
+
+    const KalmanTuning& getKalmanTuning() const {
+        if (_configDirty) resolveConfig();
+        return _kalmanResolved;
+    }
+
+    // --- Overrides runtime DetectionConfig ---
+    void setCurrentDeadband(float amps) {
+        _detectOverride.current_deadband_A = amps;
+        _configDirty = true;
+    }
+    void setVoltageTolerance(float pct, float min_V) {
+        _detectOverride.v_tol_pct = pct;
+        _detectOverride.v_tol_min_V = min_V;
+        _configDirty = true;
+    }
+    void setFloatCurrentMax(float min_A, float factor) {
+        _detectOverride.float_current_min_A = min_A;
+        _detectOverride.float_current_factor = factor;
+        _configDirty = true;
+    }
+    void setOcvRestHours(float hours) {
+        _detectOverride.ocv_rest_hours = hours;
+        _configDirty = true;
+    }
+    void setCycleThreshold(float pct) {
+        _detectOverride.cycle_thr_pct = pct;
+        _configDirty = true;
+    }
+
+    // --- Overrides runtime KalmanTuning ---
+    void setKalmanP(float init_C, float min_C, float init_aging, float min_aging) {
+        _kalmanOverride.p_init_C = init_C;
+        _kalmanOverride.p_min_C = min_C;
+        _kalmanOverride.p_init_aging = init_aging;
+        _kalmanOverride.p_min_aging = min_aging;
+        _configDirty = true;
+    }
+    void setKalmanQ(float aging_uncertainty, float capacity_drift) {
+        _kalmanOverride.q_aging_uncertainty = aging_uncertainty;
+        _kalmanOverride.q_capacity_drift = capacity_drift;
+        _configDirty = true;
+    }
+    void setKalmanR(float init, float min, float max, float smooth_alpha) {
+        _kalmanOverride.r_init = init;
+        _kalmanOverride.r_min = min;
+        _kalmanOverride.r_max = max;
+        _kalmanOverride.r_smooth_alpha = smooth_alpha;
+        _configDirty = true;
+    }
+    void setKalmanSegmentThresholds(float min_dAh_abs, float min_dAh_pct,
+                                    float dSoc_boot, float dSoc_coarse, float dSoc_track,
+                                    float dSoc_high_conf, bool ocv_allowed) {
+        _kalmanOverride.seg_min_dAh_abs = min_dAh_abs;
+        _kalmanOverride.seg_min_dAh_pct = min_dAh_pct;
+        _kalmanOverride.seg_min_dsoc[0] = dSoc_boot;
+        _kalmanOverride.seg_min_dsoc[1] = dSoc_coarse;
+        _kalmanOverride.seg_min_dsoc[2] = dSoc_track;
+        _kalmanOverride.seg_dsoc_high_conf = dSoc_high_conf;
+        _kalmanOverride.ocv_segment_allowed = ocv_allowed;
+        _ocvSegmentAllowedSet = true;
+        _configDirty = true;
+    }
+    void setKalmanBatteryChange(float thr, uint8_t count) {
+        _kalmanOverride.battery_change_thr = thr;
+        _kalmanOverride.battery_change_count = count;
+        _configDirty = true;
+    }
+    void setKalmanRestLong(float min_minutes, float stable_mv, float stable_minutes,
+                           uint8_t min_samples, uint8_t max_samples) {
+        _kalmanOverride.rest_long_min_min = min_minutes;
+        _kalmanOverride.rest_long_stable_mv = stable_mv;
+        _kalmanOverride.rest_long_stable_min = stable_minutes;
+        _kalmanOverride.rest_long_stable_min_samples = min_samples;
+        _kalmanOverride.rest_long_stable_max_samples = max_samples;
+        _configDirty = true;
+    }
+    void setKalmanConfidence(float conf_float, float conf_rest_base, float conf_rest_span,
+                             float conf_phase_coarse, float conf_phase_refine) {
+        _kalmanOverride.conf_float = conf_float;
+        _kalmanOverride.conf_rest_base = conf_rest_base;
+        _kalmanOverride.conf_rest_span = conf_rest_span;
+        _kalmanOverride.conf_phase_coarse = conf_phase_coarse;
+        _kalmanOverride.conf_phase_refine = conf_phase_refine;
+        _configDirty = true;
+    }
+
+    // Réinitialise tous les overrides runtime → retour au défaut tech/macro
+    void resetOverrides() {
+        _detectOverride = overrideDetectionNone();
+        _kalmanOverride = overrideKalmanNone();
+        _ocvSegmentAllowedSet = false;
+        _configDirty = true;
+    }
 
     BatteryTech getTechnology() const { return tech; }
 
@@ -925,6 +1282,7 @@ public:
     void setTechnology(BatteryTech t) { 
         tech = t; 
         _paramsCached = false;
+        _configDirty = true;
     }
 
     void setCellCount(uint8_t cells) { 
@@ -947,6 +1305,7 @@ public:
             if (detected != tech) {
                 tech = detected;
                 _paramsCached = false;
+                _configDirty = true;
             }
         }
         return tech;
@@ -991,6 +1350,7 @@ public:
         resetState();
         cycle_count = 0;
         _paramsCached = false;
+        _configDirty = true;
     }
 };
 
