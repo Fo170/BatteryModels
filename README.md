@@ -160,21 +160,27 @@ Cette bibliothèque est **totalement compatible** avec [BatteryKalman](https://g
 - Résultat : **±0.8% erreur SoC** sur -30 à +80°C (vs ±1.4% seul BatteryModels)
 - **v1.3.0** : la correction de `detectChargeState()` (test `near_float` avant `in_rest`) restaure la détection `State_FLOAT` — point de référence « batterie pleine » (SoC = 100 %) indispensable à l'apprentissage de capacité de BatteryKalman (intégrée dans BatteryKalman v1.5.3)
 
-**Utilisation combinée** (exemple):
+**Utilisation combinée** (exemple, API BatteryKalman v1.6.0):
 ```cpp
 #include <BatteryModels.h>
 #include <BatteryKalman.h>
+#include <Coulomb.h>  // depuis Fo170/CoulombsAh
+
+// Données à persister
+SoCData socData;
+KalmanState2D kalmanState;
 
 BatteryModel bat(TECH_LIFEPO4, 4, 100.0f, 5.0f);
-BatteryKalman kalman(bat);  // Initialise avec le modèle
+Coulomb coulomb;  // Compteur coulombs (CoulombsAh v1.1+)
+BatteryKalman kalman(&socData, &kalmanState, &bat, &coulomb);
 
-// Dans la boucle
+// Dans la boucle (10 Hz)
 float v_meas = readVoltage();
 float i_meas = readCurrent();
 float t_meas = readTemp();
-
-kalman.update(v_meas, i_meas, t_meas, dt_seconds);
-float soc_optimal = kalman.getSOC();  // Estimation fusionnée
+coulomb.addMeasurement(i_meas);       // alimenter le compteur coulombs
+kalman.update(v_meas, i_meas, t_meas); // API v1.6.0 : update(V, I, T)
+float soc_optimal = kalman.getSoC();  // Estimation fusionnée
 ```
 
 Voir la documentation de [BatteryKalman](https://github.com/Fo170/BatteryKalman) pour des exemples détaillés.
