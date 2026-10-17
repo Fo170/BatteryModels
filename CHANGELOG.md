@@ -4,6 +4,91 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.6.6] - 2026-10-17 - AFFRLS (2ᵉ passe) + EKF d'état `SocEkf`
+
+Version **cumulative 1.6.2 → 1.6.6** (API 100 % additive, rétrocompatible).
+
+### ✨ Added
+
+**1.6.2 — OCV cubique + hystérésis**
+- `setOcvPolynomial(a0,a1,a2,a3)` / `clearOcvPolynomial()` / `hasOcvPolynomial()` /
+  `getOcvPolynomial()` — override **cubique** de la courbe OCV (V/cellule,
+  `s = SOC/100`). Inverse par **bissection** (`soc_from_ocv_cubic`), 24 itérations.
+- `setHysteresis(h_max_per_cell, gamma_per_s)` / `clearHysteresis()` /
+  `getHysteresis()` / `getHysteresisMax()` — hystérésis charge/décharge
+  **one-state** (Plett), intégrée à `correctVoltageToOCV` (on **retranche** `h`
+  pour rendre la lecture SoC indépendante du sens du courant).
+
+**1.6.3 — AFFRLS : classe `RlsIdentifier`**
+- Identification en ligne `R0/R1/τ1` du modèle Thévenin 1 RC par moindres carrés
+  récursifs à **facteur d'oubli adaptatif**.
+- Forme ARX (convention projet **I > 0 = charge**) :
+  `y[k] = Vt − OCV`, `φ = [y[k−1], I[k], I[k−1]]`, `θ = [a1, R0, b1 − a1·R0]`,
+  extraction `R1 = b1/(1−a1)`, `τ1 = −Δt/ln(a1)`.
+- Garde-fous : `R0 ∈ [r0_min, r0_max]`, `τ ∈ [tau_min, tau_max]`, `P` bornée,
+  **gel sans excitation**, rejet des `dt` non plausibles, `isfinite()` partout.
+- `serialize()` / `deserialize()` — persistance compacte.
+- ⚠️ Correctif : le régresseur initial (`φ = [−I, −I_prev, y_prev]`) était
+  **structurellement faux** (signes) → ne pouvait pas identifier `R0` en
+  convention projet. Corrigé.
+
+**1.6.4 — 2ᵉ branche RC + gassing**
+- `setSecondRC(r2_mOhm_per_cell, tau2_s)` / `clearSecondRC()` /
+  `getSecondRCVoltage()` — diffusion lente, discrétisation **exacte** `e^(−Δt/τ)`.
+- `setGassing(v_gas_per_cell, k_gas)` / `clearGassing()` /
+  `getGassingOvervoltage()` — branche parasite en fin de charge (reproduit le
+  palier de floating), retranchée comme la polarisation.
+
+**1.6.5 — Peukert paramétrable + rendement variable**
+- `setPeukertExponent(n)` / `setPeukertReferenceRate(Iref)` /
+  `getPeukertExponent()` — exposant de Peukert runtime (remplace `k_peukert`).
+- `getChargeEfficiency(I, eta_base)` / `getDischargeEfficiency(I, eta_base)` —
+  rendement **η variable** : `η(I) = η_base·(I_ref/|I|)^(n−1)`, borné `[0.5, 1]`.
+
+**1.6.6 — EKF d'état `SocEkf`**
+- EKF d'ordre 3 sur `x = [SoC, V1, V2]` : prédiction par le courant + dynamique
+  RC, correction par la tension terminale via le modèle Thévenin.
+  `H = [∂V_oc/∂s, +1, +1]` (dérivée numérique).
+- `setCapacity/setParams/setNoise/setLoadRFactor/setRScale/setVoltageCorrection`,
+  `update(&model, Vt, I, T, dt)`, `getSoC/getConfidence/getInnovation/getV1/getV2`.
+- Fusion **pondérée par le gain de Kalman** (`P`/`R`) ; correction **gatée** sur
+  `RlsIdentifier::isValid()` (sans paramètres Thévenin, l'EKF = coulomb pur).
+
+**1.6.6+ (2ᵉ passe AFFRLS, 17/10/2026) — excitation sur fenêtre longue**
+- **`RlsIdentifier`** : ajout d'un **ring de courants** (`_ringI[60]`) comparant
+  `I[k]` à `I[k−60]` → détecte les **rampes lentes** (charge solaire étalée sur
+  des heures) que le critère « ΔI entre 2 pas » ignorait.
+- **Seuil d'excitation ADAPTATIF** : `max(_dIThr, 6×jitter)` borné par
+  `_dIThrMax` → sensible si le courant est propre, insensible s'il est bruité.
+- `setLongWindowThreshold()` / `setAdaptiveMax()` / `getEffectiveThreshold()` /
+  `getJitter()` / `getExciteCountdown()` / `setUpdatePeriod()`.
+- **Persistance étendue** : `θ(3) + P symétrique(6) + n + λ + fenêtre = 46 o`
+  (l'ancien format 52 o persistait la matrice `P` pleine sans `λ`).
+- `_exciteWindow` 180 → **600 s** (identification de `τ` sur la relaxation).
+- Correctifs de robustesse : `_theta[0]` (a1) borné sur **tous** les chemins de
+  sortie ; `_tau` recalculé dans `reset()` et `deserialize()` ; valeur de repli
+  de `τ` bornée ; `SocEkf` borne `|V1|,|V2| ≤ 5 V` (prédiction **et** correction).
+
+### ⚠️ Notes de publication
+- L'**OCV doit rester monotone croissant** sur `[0,1]` (bissection bijective).
+- **Ne pas** nommer de membre `_P`, `_C`, `_r`, `_q`, `_x` (macros du SDK ESP8266).
+- Convention de signe : **I > 0 = charge** ⇒ `Vt = OCV + I·R0 + V1 + V2`.
+- `R_int` / `R2` sont en **mΩ par cellule** ; `R0`/`R1` de `RlsIdentifier` en **Ω batterie**.
+
+## [1.6.1] - 2026-09-29 - Override runtime des seuils de tension (FLOAT/ABSORPTION)
+
+### ✨ Added
+
+- **`setVoltageThresholds(v_float_per_cell, v_abs_per_cell = NAN)`** — ajuste au
+  runtime les tensions FLOAT/ABSORPTION par cellule (sentinelle NAN = conserver le
+  défaut de la technologie). Permet d'aligner `detectChargeState()` sur les
+  tensions réelles du chargeur, ex. Victron plomb : `setVoltageThresholds(2.30f)`
+  (float 13.8 V) alors que le défaut plomb était `V_float_per_cell = 2.37` (14.22 V)
+  → le FLOAT n'était jamais détecté avec un float réel à 13.8 V.
+- `getParams()` applique ces overrides après lecture PROGMEM (cache).
+
+Aucun breaking change : sans appel au setter, le comportement reste identique.
+
 ## [1.6.0] - 2026-08-04 - Supercondensateur (TECH_SUPERCAP)
 
 ### ✨ Added

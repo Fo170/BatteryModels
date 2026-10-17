@@ -1,6 +1,9 @@
 #ifndef BATTERY_MODELS_H
 #define BATTERY_MODELS_H
 
+// Version de la librairie (source UNIQUE — agrégée par src/liste_lib.h)
+#define __BATTERYMODELS_H_VERSION__ "1.6.6"
+
 /*
   BatteryModels v1.6.0 - Modèles paramétriques avancés pour batteries
 
@@ -664,6 +667,48 @@ private:
     mutable KalmanTuning    _kalmanResolved;
     mutable bool            _configDirty = true;
 
+    // ===== NOUVEAU v1.6.1: override runtime des seuils de tension (V/cell) =====
+    // Sentinelle NAN = "conserver le défaut de la technologie". Permet d'aligner
+    // la détection FLOAT/ABSORPTION sur les tensions réelles du chargeur (ex.
+    // Victron float 13.8 V ⇒ 2.30 V/cell au lieu du défaut plomb 2.37 V/cell).
+    mutable float _vFloatPerCellOverride = NAN;
+    mutable float _vAbsPerCellOverride   = NAN;
+
+    // ===== NOUVEAU v1.6.2: override runtime des coefficients OCV (CUBIQUE) =====
+    // V_cell(s) = a0 + a1·s + a2·s² + a3·s³, avec s = SOC/100, V en volts PAR
+    // CELLULE. Permet d'ajuster la courbe OCV sur la batterie réelle sans toucher
+    // aux tables par technologie. Activé par setOcvPolynomial(...), désactivé par
+    // clearOcvPolynomial(). N'affecte QUE les technos à polynôme (plomb, NiFe…) —
+    // les technologies à TABLE (Li, Na…) gardent leur table.
+    mutable bool  _ocvPolySet = false;
+    mutable float _ocvA0 = 0.0f, _ocvA1 = 0.0f, _ocvA2 = 0.0f, _ocvA3 = 0.0f;
+
+    // ===== NOUVEAU v1.6.2: hystérésis charge/décharge (one-state, Plett) =====
+    // h ∈ [−h_max, +h_max] (V/cell). h converge vers +h_max en charge et −h_max
+    // en décharge, avec la constante de temps 1/gamma (s). h_max = 0 → désactivé.
+    // Modèle : V_terminal = OCV(SOC) + h + I·R + V_pol ⇒ la conversion
+    // V_terminal → OCV RETRANCHE h pour rendre la lecture SoC indépendante du sens.
+    mutable float _hystState = 0.0f;
+    mutable float _hystMax   = 0.0f;   // V/cell
+    mutable float _hystGamma = 0.0f;   // 1/s (0 = gelé)
+
+    // ===== NOUVEAU v1.6.4: 2ᵉ branche RC (diffusion lente) + gassing =====
+    // 2ᵉ RC : R2 (mΩ/cell) et τ2 (s). 0 = branche désactivée (1 RC seule).
+    mutable float _r2mOhm   = 0.0f;
+    mutable float _tau2     = 0.0f;
+    mutable float _v2State  = 0.0f;    // V/cell (état de la 2ᵉ branche)
+    // Gassing (branche parasite en fin de charge) : surtension qui apparaît
+    // quand V_cell dépasse le seuil de dégagement gazeux (v_gas), proportionnelle
+    // au dépassement (k_gas). 0 = désactivé. Rend le palier de floating (~14,9 V).
+    mutable float _vGasCell = 0.0f;    // V/cell (seuil, 0 = off)
+    mutable float _kGas     = 0.0f;    // surtension par volt de dépassement
+    mutable float _gasState = 0.0f;    // V/cell (état lissé)
+
+    // ===== NOUVEAU v1.6.5: Peukert paramétrable + rendement variable =====
+    // Sentinelle NAN = garder le défaut de la technologie (k_peukert).
+    mutable float _peukertNOverride    = NAN;   // exposant n (1 = idéal)
+    mutable float _peukertIrefOverride = NAN;   // courant de référence (A)
+
     // Fabrique des sentinelles "non surchargé" (NAN pour les floats, 0 pour les uint8_t)
     static DetectionConfig overrideDetectionNone() {
         DetectionConfig c = {NAN, NAN, NAN, NAN, NAN, NAN, NAN};
@@ -693,6 +738,9 @@ private:
         if (!_paramsCached) {
             uint8_t idx = min((uint8_t)tech, (uint8_t)(TECH_COUNT - 1));
             BATT_MEMCPY_P(&_paramsCache, &TECH_PARAMS[idx], sizeof(TechParams));
+            // v1.6.1: seuils de tension ajustables au runtime (NAN = défaut tech)
+            if (!isnan(_vFloatPerCellOverride)) _paramsCache.V_float_per_cell = _vFloatPerCellOverride;
+            if (!isnan(_vAbsPerCellOverride))   _paramsCache.V_abs_per_cell   = _vAbsPerCellOverride;
             _paramsCached = true;
         }
         return _paramsCache;
@@ -746,8 +794,21 @@ private:
         _configDirty = false;
     }
 
-    float calculateRsocWithSaturation(float s_ref, float gamma_soc, float max_ratio) const {
-        if (s_ref <= 0.0f) return max_ratio;
+    // Rendement variable (Peukert) — helper privé (v1.6.5, phase 7).
+    float _variableEfficiency(float base, float current) const {
+        float n = getPeukertExponent();
+        if (n <= 1.0f) return base;
+        float I = fabsf(current);
+        if (!isfinite(I) || I < 1e-3f) return base;
+        float iref = getPeukertReferenceRate();
+        if (iref <= 0.0f) return base;
+        float eta = base * powf(iref / I, n - 1.0f);
+        if (eta > 1.0f) eta = 1.0f;
+        if (eta < 0.5f) eta = 0.5f;
+        return eta;
+    }
+
+    float calculateRsocWithSaturation(float s_ref, float gamma_soc, float max_ratio) const {        if (s_ref <= 0.0f) return max_ratio;
         s_ref = constrain(s_ref, 0.001f, 1.0f);
 
         float unbounded = 1.0f + gamma_soc * (1.0f / s_ref - 1.0f);
@@ -843,6 +904,29 @@ private:
     float ocv_from_soc_poly(const OcvPoly& p, float soc) const {
         float s = constrain(soc / 100.0f, 0.0f, 1.0f);
         return p.A * s * s + p.B * s + p.C;
+    }
+
+    // --- Override cubique (v1.6.2) : V_cell(s) = a0 + a1·s + a2·s² + a3·s³ ---
+    float ocv_from_soc_cubic(float soc) const {
+        float s = constrain(soc / 100.0f, 0.0f, 1.0f);
+        return _ocvA0 + s * (_ocvA1 + s * (_ocvA2 + s * _ocvA3));
+    }
+
+    // Inverse robuste V_cell → SoC% : recherche de racine par bissection.
+    // L'OCV est supposé monotone croissant sur s∈[0,1] (vrai pour le plomb).
+    // Retourne 0 / 100 si V_cell sort des bornes du polynôme.
+    float soc_from_ocv_cubic(float V_cell) const {
+        float f0 = _ocvA0 - V_cell;                                            // s = 0
+        float f1 = _ocvA0 + _ocvA1 + _ocvA2 + _ocvA3 - V_cell;                 // s = 1
+        if (f0 >= 0.0f) return 0.0f;
+        if (f1 <= 0.0f) return 100.0f;
+        float lo = 0.0f, hi = 1.0f;
+        for (int i = 0; i < 24; i++) {
+            float mid = 0.5f * (lo + hi);
+            float f = _ocvA0 + mid * (_ocvA1 + mid * (_ocvA2 + mid * _ocvA3)) - V_cell;
+            if (f < 0.0f) lo = mid; else hi = mid;
+        }
+        return constrain(0.5f * (lo + hi) * 100.0f, 0.0f, 100.0f);
     }
 
     // Detection automatique par analyse de la pente OCV
@@ -967,6 +1051,8 @@ public:
                 return constrain(soc, 0.0f, 100.0f);
             }
             default:
+                // v1.6.2 : override cubique prioritaire sur le polynôme techno
+                if (_ocvPolySet) return soc_from_ocv_cubic(V_cell);
                 return soc_from_ocv_poly(getParams().ocv, V_cell);
         }
     }
@@ -1013,7 +1099,9 @@ public:
                 break;
             }
             default:
-                V_cell = ocv_from_soc_poly(getParams().ocv, soc);
+                // v1.6.2 : override cubique prioritaire sur le polynôme techno
+                V_cell = _ocvPolySet ? ocv_from_soc_cubic(soc)
+                                     : ocv_from_soc_poly(getParams().ocv, soc);
                 break;
         }
 
@@ -1087,10 +1175,20 @@ public:
     // CORRECTION DE TENSION (MODELE THEVENIN)
     // ============================================================
 
+    // soc_ref : SoC de RÉFÉRENCE (0..100), typiquement le SoC COULOMB (factuel).
+    //   ⚠️ 02/10/2026 — BUG CORRIGÉ : avant, `soc_est` était dérivé de la tension
+    //   TERMINALE. Sous charge, si V tombe hors de la table OCV (plomb < 1,98 V/
+    //   cellule), ocvToSoc renvoyait 0 → calculateRsocWithSaturation renvoyait
+    //   R_soc_max (18) → R_int énorme → correction I·R qui poussait V_corrigée
+    //   AU-DESSUS de l'OCV max → SoC_voltage = 100 % (emballement inversé).
+    //   On utilise désormais le SoC de référence (coulomb) quand il est fourni,
+    //   avec un plancher sur s_ref pour supprimer la saturation de R_soc.
+    //   NAN = pas de référence → repli sur l'OCV de la tension, également borné.
     float correctVoltageToOCV(float voltage, float current, 
                               float temperature, float dt_s,
                               float* r_int_eff = nullptr,
-                              float* v_pol = nullptr) {
+                              float* v_pol = nullptr,
+                              float soc_ref = NAN) {
         if (n_cells == 0) return voltage;
 
         const TechParams& tp = getParams();
@@ -1100,8 +1198,10 @@ public:
         float R_T = getResistanceAtTemp(R25, temperature);
         R_T = max(R_T, 0.001f);
 
-        float soc_est = ocvToSoc(voltage, temperature);
-        float s_ref = soc_est / 100.0f;
+        float soc_est = (isfinite(soc_ref) && soc_ref > 0.0f)
+                        ? soc_ref
+                        : ocvToSoc(voltage, temperature);
+        float s_ref = constrain(soc_est / 100.0f, 0.05f, 1.0f);   // plancher anti-saturation
 
         float R_soc = calculateRsocWithSaturation(s_ref, tp.gamma_soc, tp.R_soc_max);
 
@@ -1121,8 +1221,48 @@ public:
             V_pol_state = 0.0f;
         }
 
+        // Hystérésis (one-state, v1.6.2) : h → +h_max en charge, −h_max en décharge,
+        // constante de temps 1/gamma. On RETRANCHE h pour ramener V_terminal à l'OCV
+        // « sans hystérésis » → la lecture SoC ne dépend plus du sens du courant.
+        if (_hystMax > 0.0f && dt_s > 0.0f && _hystGamma > 0.0f) {
+            float target = (current > 0.0f) ? _hystMax
+                         : (current < 0.0f ? -_hystMax : _hystState);
+            float alpha_h = 1.0f - expf(-dt_s * _hystGamma);
+            alpha_h = constrain(alpha_h, 0.0f, 1.0f);
+            _hystState += alpha_h * (target - _hystState);
+            _hystState = constrain(_hystState, -_hystMax, _hystMax);
+        }
+
+        // 2ᵉ branche RC (diffusion lente, v1.6.4) — discrétisation exacte e^(−Δt/τ).
+        if (_r2mOhm > 0.0f && _tau2 > 0.0f && dt_s > 0.0f) {
+            float R2 = _r2mOhm / 1000.0f;
+            float alpha2 = 1.0f - expf(-dt_s / _tau2);
+            alpha2 = constrain(alpha2, 0.0f, 1.0f);
+            _v2State += alpha2 * (current * R2 - _v2State);
+        } else if (dt_s < 0.0f) {
+            _v2State = 0.0f;
+        }
+
+        // Gassing (branche parasite, v1.6.4) : en charge, si la tension terminale
+        // dépasse le seuil de dégagement, une surtension apparaît (état lissé) →
+        // elle est retranchée comme la polarisation (elle n'est PAS de l'OCV).
+        if (_vGasCell > 0.0f && _kGas > 0.0f) {
+            float target = (current > 0.0f && V_cell > _vGasCell)
+                           ? _kGas * (V_cell - _vGasCell) : 0.0f;
+            if (dt_s > 0.0f) {
+                // lissage rapide (τ ≈ 20 s) — le dégagement suit la charge
+                float aGas = 1.0f - expf(-dt_s / 20.0f);
+                aGas = constrain(aGas, 0.0f, 1.0f);
+                _gasState += aGas * (target - _gasState);
+            } else {
+                _gasState = target;
+            }
+            _gasState = constrain(_gasState, 0.0f, 5.0f);
+        }
+
         float V_drop_ohm = R_int * current;
-        float V_corrected = V_cell - (V_drop_ohm + V_pol_state);
+        float V_corrected = V_cell - (V_drop_ohm + V_pol_state + _v2State)
+                            - _hystState - _gasState;
         V_corrected = applyThermalCorrectionOCV(V_corrected, temperature);
 
         if (r_int_eff) *r_int_eff = R_int;
@@ -1187,6 +1327,7 @@ public:
     // Ceci rend le tracking SoC plus réaliste à hauts courants.
 
     float getPeukertReferenceRate() const {
+        if (!isnan(_peukertIrefOverride)) return _peukertIrefOverride;
         if (n_cells == 0) return 1.0f;
         switch (tech) {
             case TECH_FLOODED:
@@ -1202,12 +1343,14 @@ public:
 
     float getEffectiveCapacity(float current) const {
         const TechParams& tp = getParams();
-        if (fabsf(current) < 0.01f || tp.k_peukert <= 1.0f) {
+        float n_peukert = isnan(_peukertNOverride) ? tp.k_peukert : _peukertNOverride;
+        if (fabsf(current) < 0.01f || n_peukert <= 1.0f) {
             return C_nominal;
         }
         float I_abs = fabsf(current);
         float I_nom = getPeukertReferenceRate();
-        float peukert_factor = powf(I_nom / I_abs, tp.k_peukert - 1.0f);
+        if (I_nom <= 0.0f) return C_nominal;
+        float peukert_factor = powf(I_nom / I_abs, n_peukert - 1.0f);
         return C_nominal * peukert_factor;
     }
 
@@ -1300,6 +1443,82 @@ public:
         _detectOverride.v_tol_pct = pct;
         _detectOverride.v_tol_min_V = min_V;
         _configDirty = true;
+    }
+    // --- Override runtime des seuils de tension par cellule (V/cell) ---
+    // Aligne FLOAT/ABSORPTION sur les tensions réelles du chargeur. NAN = garder
+    // le défaut de la technologie. Ex. plomb Victron : setVoltageThresholds(2.30f)
+    // (float 13.8 V) — l'absorption 14.8 V reste couverte par le défaut 2.45 V.
+    void setVoltageThresholds(float v_float_per_cell, float v_abs_per_cell = NAN) {
+        _vFloatPerCellOverride = v_float_per_cell;
+        _vAbsPerCellOverride   = v_abs_per_cell;
+        _paramsCached = false;
+    }
+
+    // --- Override runtime de la courbe OCV (CUBIQUE, par cellule) — v1.6.2 ---
+    // V_cell(s) = a0 + a1·s + a2·s² + a3·s³, s = SOC/100 (0..1), V/cell.
+    // ⚠️ Coefficients PAR CELLULE : pour une courbe mesurée sur la batterie
+    // complète (ex. 12 V, 6 cellules), diviser chaque coefficient par n_cells
+    // et convertir le SOC en s=SOC/100. Additif : sans appel, comportement
+    // inchangé (tables/polynômes par technologie).
+    void setOcvPolynomial(float a0, float a1, float a2, float a3) {
+        _ocvA0 = a0; _ocvA1 = a1; _ocvA2 = a2; _ocvA3 = a3;
+        _ocvPolySet = true;
+    }
+    void clearOcvPolynomial() { _ocvPolySet = false; }
+    bool hasOcvPolynomial() const { return _ocvPolySet; }
+    void getOcvPolynomial(float& a0, float& a1, float& a2, float& a3) const {
+        a0 = _ocvA0; a1 = _ocvA1; a2 = _ocvA2; a3 = _ocvA3;
+    }
+
+    // --- Hystérésis charge/décharge (one-state) — v1.6.2 ---
+    // h_max en V/CELLULE ; gamma = 1/constante_de_temps en 1/s (0 = gelé).
+    // Ex. plomb : h_max ≈ 0,2 V/cell, gamma ≈ 1/300 s⁻¹ (bascule en ~10 min).
+    void setHysteresis(float h_max_per_cell, float gamma_per_s) {
+        _hystMax   = fabsf(h_max_per_cell);
+        _hystGamma = (gamma_per_s > 0.0f) ? gamma_per_s : 0.0f;
+        _hystState = constrain(_hystState, -_hystMax, _hystMax);
+    }
+    void clearHysteresis() { _hystMax = 0.0f; _hystState = 0.0f; _hystGamma = 0.0f; }
+    float getHysteresis() const { return _hystState; }      // V/cell
+    float getHysteresisMax() const { return _hystMax; }
+
+    // --- 2ᵉ branche RC (diffusion lente) — v1.6.4 ---
+    // R2 en mΩ/cellule, tau2 en secondes. 0 = désactivée (1 RC seule).
+    void setSecondRC(float r2_mOhm_per_cell, float tau2_s) {
+        _r2mOhm = (isfinite(r2_mOhm_per_cell) && r2_mOhm_per_cell > 0.0f) ? r2_mOhm_per_cell : 0.0f;
+        _tau2   = (isfinite(tau2_s) && tau2_s > 0.0f) ? tau2_s : 0.0f;
+    }
+    void clearSecondRC() { _r2mOhm = 0.0f; _tau2 = 0.0f; _v2State = 0.0f; }
+    float getSecondRCVoltage() const { return _v2State; }   // V/cell
+
+    // --- Gassing (branche parasite en fin de charge) — v1.6.4 ---
+    // v_gas_per_cell : seuil de dégagement (V/cell). k_gas : surtension (V) par
+    // volt de dépassement. Ex. plomb : setGassing(2.35f, 1.5f).
+    void setGassing(float v_gas_per_cell, float k_gas) {
+        _vGasCell = (isfinite(v_gas_per_cell) && v_gas_per_cell > 0.0f) ? v_gas_per_cell : 0.0f;
+        _kGas     = (isfinite(k_gas) && k_gas > 0.0f) ? k_gas : 0.0f;
+    }
+    void clearGassing() { _vGasCell = 0.0f; _kGas = 0.0f; _gasState = 0.0f; }
+    float getGassingOvervoltage() const { return _gasState; }   // V/cell
+
+    // --- Peukert paramétrable + rendement variable — v1.6.5 (phase 7) ---
+    // Exposant n runtime (NAN = défaut techno). 1.0 = désactivé.
+    void setPeukertExponent(float n) {
+        _peukertNOverride = (isfinite(n) && n >= 1.0f && n <= 2.0f) ? n : NAN;
+    }
+    void setPeukertReferenceRate(float iref_A) {
+        _peukertIrefOverride = (isfinite(iref_A) && iref_A > 0.0f) ? iref_A : NAN;
+    }
+    float getPeukertExponent() const {
+        return isnan(_peukertNOverride) ? getParams().k_peukert : _peukertNOverride;
+    }
+    // Rendement VARIABLE selon le courant (AC-7.3) : η(I) = η_base·(I_ref/|I|)^(n−1),
+    // borné [0.5, 1]. À fort courant, une part de l'énergie est perdue (chaleur/gaz).
+    float getChargeEfficiency(float current, float eta_base = 0.90f) const {
+        return _variableEfficiency(eta_base, current);
+    }
+    float getDischargeEfficiency(float current, float eta_base = 1.00f) const {
+        return _variableEfficiency(eta_base, current);
     }
     void setFloatCurrentMax(float min_A, float factor) {
         _detectOverride.float_current_min_A = min_A;
@@ -1454,6 +1673,8 @@ public:
 
     void resetState() {
         V_pol_state = 0.0f;
+        _v2State = 0.0f;
+        _gasState = 0.0f;
         last_current = 0.0f;
         accumulated_charge_Ah = 0.0f;
         last_charge_delta_Ah = 0.0f;
@@ -1465,6 +1686,506 @@ public:
         _paramsCached = false;
         _configDirty = true;
     }
+};
+
+// ============================================================
+// AFFRLS — identification en ligne des paramètres (v1.6.3)
+// ============================================================
+// Identifie R0, R1 et tau1 du modèle Thévenin 1 RC par moindres carrés
+// récursifs à facteur d'oubli adaptatif (AFFRLS), cf. docs/batterie/
+// algorithme.md §3. Forme ARX linéaire en les paramètres.
+//
+//   Modèle (convention projet, I>0 = charge) :
+//     V_terminal = OCV + R0·I + V1        (V1 = état RC)
+//     V1[k] = a1·V1[k−1] + b1·I[k−1]      (a1 = e^(−Δt/τ1), b1 = R1(1−a1))
+//   ⇒ en éliminant V1 :  y[k] = a1·y[k−1] + R0·I[k] + (b1 − a1·R0)·I[k−1]
+//     avec y[k] = Vt[k] − OCV[k]   (« tension utile »)
+//
+//   φ[k] = [ y[k−1],  I[k],  I[k−1] ]
+//   θ[k] = [ a1,  R0,  b1 − a1·R0 ]
+//
+//   extraction : a1 = θ0 ; R0 = θ1 ; b1 = θ2 + a1·θ1 ; R1 = b1/(1−a1) ;
+//                τ1 = −Δt/ln(a1)//
+// ⚠️ 16/10/2026 — le régresseur précédent ([−I, −I_prev, y_prev] / θ=[R0,…])
+// était STRUCTURELLEMENT faux (signes) : il ne pouvait pas identifier R0 avec
+// la convention projet. Corrigé ci-dessus.
+//
+// Garde-fous : R0∈[r0_min,r0_max], τ1∈[tau_min,tau_max], P bornée,
+// gel sans excitation (|ΔI| < seuil), rejet des dt non plausibles, isfinite.
+// RAM : ~60 o (theta[3] + P[3][3] + scalaires). Aucune allocation.
+// ============================================================
+class RlsIdentifier {
+public:
+    void begin() {
+        reset();
+    }
+
+    void reset() {
+        // θ = [a1, R0, b1 − a1·R0] ; init plausible (τ≈20 s à dt=1, R0=0.5, R1=0.3)
+        _theta[0] = 0.95f;                  // a1
+        _theta[1] = 0.5f;                   // R0
+        _theta[2] = 0.3f * (1.0f - 0.95f) - 0.95f * 0.5f;   // b1 − a1·R0
+        // R-17 : τ recalculé depuis a1 (cohérence getTau1() après reset/begin).
+        _tau = constrain(-_dtNominal / logf(_theta[0]), _tauMin, _tauMax);
+        const float p0 = 1000.0f;
+        for (int i = 0; i < 3; i++)
+            for (int j = 0; j < 3; j++)
+                _cov[i][j] = (i == j) ? p0 : 0.0f;
+        _lambda = _lambdaMin;
+        _yPrev = 0.0f;
+        _iPrev = 0.0f;
+        _hasPrev = false;
+        _updates = 0;
+        _exciteCountdown = 0;
+        _r0Step = NAN;
+        _valid = false;
+        // v5.15 : ré-init ring (fenêtre longue) + seuil adaptatif
+        for (uint16_t i = 0; i < _ringN; i++) _ringI[i] = 0;
+        _ringCount = 0;
+        _ringIdx = 0;
+        _jitterEma = 0.0f;
+    }
+
+    void setBounds(float r0_min, float r0_max, float tau_min, float tau_max) {
+        if (isfinite(r0_min) && r0_min > 0.0f) _r0Min = r0_min;
+        if (isfinite(r0_max) && r0_max > _r0Min) _r0Max = r0_max;
+        if (isfinite(tau_min) && tau_min > 0.0f) _tauMin = tau_min;
+        if (isfinite(tau_max) && tau_max > _tauMin) _tauMax = tau_max;
+    }
+    void setLambda(float lambda_min, float lambda_max, float kappa) {
+        if (lambda_min > 0.90f && lambda_min <= 1.0f) _lambdaMin = lambda_min;
+        if (lambda_max >= _lambdaMin && lambda_max <= 1.0f) _lambdaMax = lambda_max;
+        if (kappa > 0.0f) _kappa = kappa;
+    }
+    void setExcitationThreshold(float dI_A) { if (dI_A > 0.0f) _dIThr = dI_A; }
+    // v5.15 : seuils de la fenêtre LONGUE + borne haute du seuil adaptatif.
+    void setLongWindowThreshold(float dI_A) { if (dI_A > 0.0f) _dIThrSlow = dI_A; }
+    void setAdaptiveMax(float dI_A) { if (dI_A > 0.0f) _dIThrMax = dI_A; }
+    // Observabilité : seuil effectif courant (adaptatif) — pour /api/status.
+    float getEffectiveThreshold() const {
+        float t = _dIThr;
+        float a = 6.0f * _jitterEma;
+        if (a > t) t = a;
+        if (t > _dIThrMax) t = _dIThrMax;
+        return t;
+    }
+    float getJitter() const { return _jitterEma; }
+    uint16_t getExciteCountdown() const { return _exciteCountdown; }
+    // Seuil du R0 direct ΔV/ΔI (AC-4.1 : |ΔI| > 0,4 A) — distinct du seuil AFFRLS.
+    void setStepThreshold(float dI_A) { if (dI_A > 0.0f) _dIThrStep = dI_A; }
+    // Pas de temps nominal (s) — utilisé pour recalculer τ = −Δt/ln(a1) après un
+    // deserialize (τ n'est pas persisté). Doit refléter la cadence réelle d'appel.
+    void setUpdatePeriod(float dt_s) { if (isfinite(dt_s) && dt_s > 0.0f) _dtNominal = dt_s; }
+
+    // Mise à jour AFFRLS. Vt = tension terminale (V), I = courant (A, >0 charge),
+    // ocv = OCV estimée au SoC courant (V), dt = pas (s).
+    // Retourne true si les paramètres ont été mis à jour.
+    bool update(float Vt, float I, float ocv, float dt) {
+        if (!isfinite(Vt) || !isfinite(I) || !isfinite(ocv) || !isfinite(dt)) return false;
+        if (dt <= _dtMin || dt > _dtMax) { _hasPrev = false; return false; }
+
+        // R0 direct par ΔV/ΔI sur transition nette (AC-4.1 : |ΔI| > 0,4 A)
+        if (_hasPrev && fabsf(I - _iPrev) >= _dIThrStep) {
+            float dI = I - _iPrev;
+            float dV = Vt - _VtPrev;
+            float r = dV / dI;   // >0 = hausse de V avec I (charge) → R0 > 0 attendu
+            if (isfinite(r) && r > _r0Min * 0.5f && r < _r0Max * 1.5f) _r0Step = r;
+        }
+
+        float y = Vt - ocv;
+
+        // ── Excitation (v5.15) : DOUBLE critère + seuil ADAPTATIF ──
+        //  1. COURT terme (1 pas) : front rapide |I[k]−I[k−1]| ≥ seuil ;
+        //  2. LONG terme (fenêtre _ringN) : rampe |I[k]−I[k−N]| ≥ seuil — capte
+        //     les variations LENTES (charge solaire étalée sur des heures) que le
+        //     critère 1-pas ignore (ΔI/s trop faible → 0,0018 A/s chez le projet).
+        //  Seuil ADAPTATIF : proportionnel au bruit de courant (jitter lissé),
+        //  borné [_dIThr, _dIThrMax] → sensible quand le courant est propre,
+        //  insensible quand il est bruité (évite les fausses excitations).
+        // Bruit court terme (EMA de |ΔI|, contribution plafonnée pour qu'un
+        // échelon ne gonfle pas artificiellement l'estimation).
+        if (_hasPrev) {
+            float d = fabsf(I - _iPrev);
+            if (d > 0.2f) d = 0.2f;
+            _jitterEma += 0.02f * (d - _jitterEma);   // τ ≈ 50 pas
+        }
+        float dIThrEff = _dIThr;
+        {
+            float adapt = 6.0f * _jitterEma;
+            if (adapt > dIThrEff) dIThrEff = adapt;
+            if (dIThrEff > _dIThrMax) dIThrEff = _dIThrMax;
+        }
+        // courant d'il y a _ringN pas (le plus ancien du ring)
+        float iOld = (float)_ringI[_ringIdx] / 1000.0f;
+        // Seuil fenêtre longue : au moins le seuil court/adaptatif.
+        float dIThrLong = (_dIThrSlow > dIThrEff) ? _dIThrSlow : dIThrEff;
+        bool longExc  = (_ringCount >= _ringN) && (fabsf(I - iOld) >= dIThrLong);
+        bool shortExc = _hasPrev && (fabsf(I - _iPrev) >= dIThrEff);
+        // mise à jour du ring (avant le test de gel)
+        _ringI[_ringIdx] = (int16_t)constrain(I * 1000.0f, -32000.0f, 32000.0f);
+        _ringIdx = (uint16_t)((_ringIdx + 1) % _ringN);
+        if (_ringCount < _ringN) _ringCount++;
+
+        // Échelon net (pour identifier τ sur la relaxation) → ouvre la fenêtre.
+        if (_hasPrev && fabsf(I - _iPrev) >= _dIThrStep) _exciteCountdown = _exciteWindow;
+        // Une excitation (courte OU longue) ouvre aussi la fenêtre d'identification.
+        if (longExc || shortExc) _exciteCountdown = _exciteWindow;
+
+        // Gel sans excitation : ni front court, ni rampe longue, ni fenêtre ouverte.
+        if (!_hasPrev || (!longExc && !shortExc && _exciteCountdown == 0)) {
+            _yPrev = y; _iPrev = I; _VtPrev = Vt; _hasPrev = true;
+            if (_exciteCountdown > 0) _exciteCountdown--;
+            return false;
+        }
+        if (_exciteCountdown > 0) _exciteCountdown--;
+
+        float phi[3] = { _yPrev, I, _iPrev };
+
+        // Gain K = P·φ / (λ + φᵀ·P·φ)
+        float Pphi[3];
+        for (int i = 0; i < 3; i++) {
+            Pphi[i] = _cov[i][0] * phi[0] + _cov[i][1] * phi[1] + _cov[i][2] * phi[2];
+        }
+        float denom = _lambda + phi[0] * Pphi[0] + phi[1] * Pphi[1] + phi[2] * Pphi[2];
+        if (!isfinite(denom) || fabsf(denom) < 1e-9f) return false;
+        float K[3] = { Pphi[0] / denom, Pphi[1] / denom, Pphi[2] / denom };
+
+        float err = y - (phi[0] * _theta[0] + phi[1] * _theta[1] + phi[2] * _theta[2]);
+        if (!isfinite(err)) return false;
+
+        for (int i = 0; i < 3; i++) _theta[i] += K[i] * err;
+
+        // ⚠️ Borne R0 (θ1) IMMÉDIATEMENT : sinon, dans le cas τ hors bornes
+        // ci-dessous (retour false sans _updates++), θ1 pouvait dériver vers des
+        // valeurs non physiques (R0 négatif observé en réel, courant quasi constant).
+        _theta[1] = constrain(_theta[1], _r0Min, _r0Max);
+
+        // P = (P − K·φᵀ·P) / λ
+        for (int i = 0; i < 3; i++) {
+            for (int j = 0; j < 3; j++) {
+                _cov[i][j] = (_cov[i][j] - K[i] * Pphi[j]) / _lambda;
+            }
+        }
+        // Borne la trace de P (anti-explosion) + symétrie
+        float tr = _cov[0][0] + _cov[1][1] + _cov[2][2];
+        if (!isfinite(tr) || tr > _pTraceMax) { reset(); return false; }
+        _cov[0][1] = _cov[1][0]; _cov[0][2] = _cov[2][0]; _cov[1][2] = _cov[2][1];
+
+        // Facteur d'oubli adaptatif λ = λmin + (λmax−λmin)·exp(−κ·|e|)
+        _lambda = _lambdaMin + (_lambdaMax - _lambdaMin) * expf(-_kappa * fabsf(err));
+        if (_lambda < _lambdaMin) _lambda = _lambdaMin;
+        if (_lambda > _lambdaMax) _lambda = _lambdaMax;
+
+        // Extraction physique + bornes : a1 = θ0, R0 = θ1
+        float a1 = _theta[0];
+        if (a1 > 0.999999f) a1 = 0.999999f;
+        if (a1 < 0.000001f) a1 = 0.000001f;
+        // ⚠️ 16/10/2026 — borner a1 DANS _theta[0] AVANT tout retour : sinon, en
+        // cas de τ hors bornes (return false ci-dessous), θ0 restait non borné
+        // (a1 > 1 possible) → getR1() = b1/(1−a1) négatif/aberrant.
+        _theta[0] = a1;
+        float tau = -dt / logf(a1);
+        if (!isfinite(tau) || tau < _tauMin || tau > _tauMax) {
+            // τ hors bornes → on garde θ (a1 et R0 déjà bornés) mais on n'expose pas τ
+            _yPrev = y; _iPrev = I; _VtPrev = Vt; _hasPrev = true;
+            return false;
+        }
+        _theta[1] = constrain(_theta[1], _r0Min, _r0Max);
+        _tau = tau;
+
+        _yPrev = y; _iPrev = I; _VtPrev = Vt; _hasPrev = true;
+        _updates++;
+        if (_updates >= _minUpdates) _valid = true;
+        return true;
+    }
+
+    // --- Observabilité ---
+    // θ = [a1, R0, b1 − a1·R0] → a1 = θ0, R0 = θ1, b1 = θ2 + a1·θ1
+    float getR0() const { return constrain(_theta[1], _r0Min, _r0Max); }
+    float getTau1() const { return _tau; }
+    float getR1() const {
+        float a1 = _theta[0];
+        if (fabsf(1.0f - a1) < 1e-6f) return 0.0f;
+        float b1 = _theta[2] + a1 * _theta[1];
+        return b1 / (1.0f - a1);
+    }
+    float getR0Step() const { return _r0Step; }   // dernier ΔV/ΔI (Ω) ou NAN
+
+    uint32_t getUpdates() const { return _updates; }
+    bool isValid() const { return _valid; }
+    float getLambda() const { return _lambda; }
+
+    // --- Persistance (FRAM) ---
+    // v5.15 : θ(3) + P symétrique(6) + n(4) + λ(4) + exciteCountdown(2) = 46 o.
+    // (Avant : θ(3)+P plein(9)+n = 52 o, sans λ.) Persister λ conserve la
+    // dynamique d'adaptation après reboot ; le ring de courants n'est pas
+    // persisté (trop volumineux — reconstruit en 60 s).
+    static constexpr uint16_t SER_LEN = 3*4 + 6*4 + 4 + 4 + 2;   // 46
+    uint16_t serialize(uint8_t* buf, uint16_t cap) const {
+        if (!buf || cap < SER_LEN) return 0;
+        uint16_t o = 0;
+        for (int i = 0; i < 3; i++) { memcpy(buf + o, &_theta[i], 4); o += 4; }
+        const float ps[6] = { _cov[0][0], _cov[0][1], _cov[0][2],
+                              _cov[1][1], _cov[1][2], _cov[2][2] };
+        for (int i = 0; i < 6; i++) { memcpy(buf + o, &ps[i], 4); o += 4; }
+        memcpy(buf + o, &_updates, 4); o += 4;
+        memcpy(buf + o, &_lambda, 4); o += 4;
+        memcpy(buf + o, &_exciteCountdown, 2); o += 2;
+        return o;
+    }
+    bool deserialize(const uint8_t* buf, uint16_t len) {
+        if (!buf || len < SER_LEN) return false;
+        float th[3], ps[6], lam;
+        uint32_t n;
+        uint16_t ec;
+        uint16_t o = 0;
+        for (int i = 0; i < 3; i++) { memcpy(&th[i], buf + o, 4); o += 4; }
+        for (int i = 0; i < 6; i++) { memcpy(&ps[i], buf + o, 4); o += 4; }
+        memcpy(&n, buf + o, 4); o += 4;
+        memcpy(&lam, buf + o, 4); o += 4;
+        memcpy(&ec, buf + o, 2); o += 2;
+        for (int i = 0; i < 3; i++) if (!isfinite(th[i])) return false;
+        for (int i = 0; i < 6; i++) if (!isfinite(ps[i])) return false;
+        if (!isfinite(lam)) return false;
+        if (th[1] < _r0Min * 0.5f || th[1] > _r0Max * 1.5f) return false;
+        for (int i = 0; i < 3; i++) _theta[i] = th[i];
+        _cov[0][0] = ps[0]; _cov[0][1] = ps[1]; _cov[1][0] = ps[1];
+        _cov[0][2] = ps[2]; _cov[2][0] = ps[2];
+        _cov[1][1] = ps[3];
+        _cov[1][2] = ps[4]; _cov[2][1] = ps[4];
+        _cov[2][2] = ps[5];
+        _updates = n;
+        _valid = (n >= _minUpdates);
+        _lambda = constrain(lam, _lambdaMin, _lambdaMax);
+        _exciteCountdown = (ec <= _exciteWindow) ? ec : 0;
+        _hasPrev = false;   // regressor précédent non restauré (sûr : 1 pas perdu)
+
+        // ⚠️ _tau n'est pas persisté : il EST recalculé depuis θ[0]=a1
+        // (τ = −Δt/ln a1) avec le pas nominal de l'AFFRLS projet (1 s).
+        _theta[0] = constrain(_theta[0], 0.000001f, 0.999999f);
+        float tau = -_dtNominal / logf(_theta[0]);
+        _tau = (isfinite(tau) && tau >= _tauMin && tau <= _tauMax) ? tau
+                                                                   : constrain(20.0f, _tauMin, _tauMax);
+        // États non persistés (ring + jitter) : reconstruits en _ringN pas.
+        _ringCount = 0;
+        _ringIdx = 0;
+        _jitterEma = 0.0f;
+        _r0Step = NAN;
+        return true;
+    }
+
+private:
+    float    _theta[3]   = {0.5f, 0.0f, 0.95f};
+    float    _cov[3][3]    = {};
+    float    _lambda     = 0.98f;
+    float    _lambdaMin  = 0.95f;
+    float    _lambdaMax  = 0.999f;
+    float    _kappa      = 5.0f;
+    float    _r0Min      = 0.05f;    // 50 mΩ
+    float    _r0Max      = 2.0f;
+    float    _tauMin     = 2.0f;
+    float    _tauMax     = 60.0f;
+    float    _dIThr      = 0.15f;    // seuil d'excitation MINI AFFRLS (A) — plancher du seuil adaptatif
+    float    _dIThrStep  = 0.4f;     // seuil R0 direct ΔV/ΔI (AC-4.1)
+    uint16_t _exciteWindow   = 600;  // fenêtre (pas) après un échelon (identifie τ) — v5.15 : 180→600
+    uint16_t _exciteCountdown = 0;
+    // ── v5.15 : excitation sur FENÊTRE LONGUE + seuil ADAPTATIF ──
+    // Ring des courants passés (mA) → détecte les RAMPEs lentes (charge solaire
+    // étalée) que le critère 1-pas (ΔI/s) ignore. 60 pas ≈ 60 s à 1 Hz.
+    static const uint16_t _ringN = 60;
+    int16_t  _ringI[_ringN] = {};    // courants (mA)
+    uint16_t _ringCount = 0;         // nb d'échantillons accumulés
+    uint16_t _ringIdx   = 0;         // index d'écriture (point le plus ancien)
+    float    _dIThrSlow = 0.10f;     // seuil fenêtre longue (A)
+    float    _dIThrMax  = 0.30f;     // borne HAUTE du seuil adaptatif (A)
+    float    _jitterEma = 0.0f;      // |ΔI| court terme lissé (bruit) → seuil adaptatif
+    float    _dtMin      = 0.05f;
+    float    _dtMax      = 5.0f;
+    float    _dtNominal  = 1.0f;     // pas nominal (s) — recalcul de τ au deserialize
+    float    _tau        = 20.0f;    // τ courant (s)
+    float    _pTraceMax  = 1e7f;
+    float    _yPrev      = 0.0f;
+    float    _iPrev      = 0.0f;
+    float    _VtPrev     = 0.0f;
+    float    _r0Step     = NAN;
+    bool     _hasPrev    = false;
+    bool     _valid      = false;
+    uint32_t _updates    = 0;
+    uint32_t _minUpdates = 5;
+};
+
+// ============================================================
+// EKF d'état — estimation du SoC (phase 6, v1.6.6)
+// ============================================================
+// Filtre de Kalman étendu d'ordre 3 sur x = [SoC, V1, V2] (SoC en fraction 0..1,
+// V1/V2 = tensions des 2 branches RC, V batterie). Prédiction par le courant
+// (comptage coulomb) + correction par la tension terminale (modèle Thévenin).
+//
+//   Prédiction : s ← s + I·Δt/(3600·C) ;  Vk ← e^(−Δt/τk)·Vk + Rk·(1−e^(−Δt/τk))·I
+//   Observation: Vt = V_oc(s,T) + I·R0 + V1 + V2
+//   H = [∂V_oc/∂s , +1 , +1]   (dérivée numérique de V_oc)
+//
+// ⚠️ CONVENTION PROJET : I > 0 = CHARGE (INA226 + projet) ⇒ V_terminal = OCV + I·R0
+//    + V1 + V2. Le rendement faradique η n'est PAS modélisé ici (η = 1) : le
+//    comptage coulomb du projet applique déjà ses propres rendements (Peukert/η).
+//
+// Le gain de Kalman K = P·Hᵀ·(H·P·Hᵀ + R)⁻¹ réalise une fusion
+// **pondérée par la confiance** (P faible / R élevé → correction douce) — AC-6.2.
+// `getConfidence()` reflète la qualité (0..1).
+//
+// RAM : P 3×3 + Q/R diagonaux + x = ~60 o. Aucune allocation.
+// ⚠️ Le résultat (SoC_EKF) est exposé SÉPARÉMENT : « le coulomb est la
+// référence » reste vrai ; l'EKF sert d'observateur/correcteur borné.
+// ============================================================
+class SocEkf {
+public:
+    void begin() { reset(); }
+
+    void reset() {
+        _state[0] = 0.5f; _state[1] = 0.0f; _state[2] = 0.0f;
+        for (int i = 0; i < 3; i++)
+            for (int j = 0; j < 3; j++)
+                _cov[i][j] = (i == j) ? (i == 0 ? 0.01f : 0.001f) : 0.0f;
+        _qNoise[0] = 1e-11f; _qNoise[1] = 1e-6f; _qNoise[2] = 1e-6f;   // Q_soc faible : « le coulomb est la référence »
+        _rNoise = 0.01f;
+        _init = false;
+        _confidence = 0.0f;
+        _innov = 0.0f;
+        _updates = 0;
+    }
+
+    void setInitialSoC(float soc_pct) { _state[0] = constrain(soc_pct / 100.0f, 0.0f, 1.0f); _init = true; }
+    void setParams(float r0_ohm, float r1_ohm, float tau1_s, float r2_ohm, float tau2_s) {
+        _R0 = (isfinite(r0_ohm) && r0_ohm > 0.0f) ? constrain(r0_ohm, 0.005f, 2.0f) : 0.01f;
+        // ⚠️ Borne R1 : un R1 aberrant (AFFRLS non convergé → ~9 Ω) rend le modèle
+        // incohérent et fait s'effondrer le SoC de l'EKF (observé en réel, v5.9).
+        _R1 = (isfinite(r1_ohm) && r1_ohm > 0.0f) ? constrain(r1_ohm, 0.0f, 2.0f) : 0.0f;
+        _tau1 = (isfinite(tau1_s) && tau1_s > 0.0f) ? constrain(tau1_s, 2.0f, 600.0f) : 20.0f;
+        _R2 = (isfinite(r2_ohm) && r2_ohm > 0.0f) ? constrain(r2_ohm, 0.0f, 2.0f) : 0.0f;
+        _tau2 = (isfinite(tau2_s) && tau2_s > 0.0f) ? constrain(tau2_s, 2.0f, 3600.0f) : 300.0f;
+    }
+    void setNoise(float q_soc, float q_v, float r_meas) {
+        if (q_soc > 0.0f) _qNoise[0] = q_soc;
+        if (q_v > 0.0f) { _qNoise[1] = q_v; _qNoise[2] = q_v; }
+        if (r_meas > 0.0f) _rNoise = r_meas;
+    }
+    void setCapacity(float c_ah) { if (isfinite(c_ah) && c_ah > 0.5f) _capAh = c_ah; }
+    // Sous charge (|I| > 0.2 A), si R0 est incertain, on gonfle le bruit de mesure
+    // → l'EKF fait davantage confiance au coulomb (principe « coulomb = référence »).
+    void setLoadRFactor(float f) { if (f >= 1.0f) _loadRFactor = f; }
+    // Échelle GLOBALE du bruit de mesure. s grand ⇒ correction tension quasi nulle
+    // (EKF ≈ coulomb). À utiliser quand les paramètres Thévenin (R0/R1/τ) ne sont
+    // PAS identifiés : sans eux, la correction tension biaise le SoC (constaté en réel).
+    void setRScale(float s) { if (s >= 1.0f) _rScale = s; }
+    // Correction tension ON/OFF. false ⇒ EKF = coulomb pur (prédiction seule),
+    // jusqu'à ce que les paramètres Thévenin soient identifiés (AFFRLS valide).
+    void setVoltageCorrection(bool en) { _useCorrection = en; }
+    bool isVoltageCorrectionOn() const { return _useCorrection; }
+
+    // Mise à jour. vt = tension terminale (V), I = courant (A, >0 charge),
+    // temp = °C, dt = pas (s). model = BatteryModel (pour V_oc). Retourne true si OK.
+    bool update(BatteryModel* model, float vt, float I, float temp, float dt) {
+        if (!model || !_init) return false;
+        if (!isfinite(vt) || !isfinite(I) || !isfinite(dt) || dt <= 0.0f || dt > 5.0f) return false;
+
+        const float n = (float)model->getCellCount();
+        if (n < 1.0f) return false;
+
+        // --- PRÉDICTION ---
+        // Convention projet : I > 0 = CHARGE → le SoC AUGMENTE.
+        float dsoc = (I * dt / 3600.0f) / _capAh;           // fraction
+        _state[0] = constrain(_state[0] + dsoc, 0.0f, 1.0f);
+        float a1 = expf(-dt / _tau1), a2 = expf(-dt / _tau2);
+        // Bornage des états RC aussi en PRÉDICTION (R-15) : la branche correction
+        // (plus bas) est court-circuitée quand setVoltageCorrection(false).
+        _state[1] = constrain(a1 * _state[1] + _R1 * (1.0f - a1) * I, -5.0f, 5.0f);
+        _state[2] = constrain(a2 * _state[2] + _R2 * (1.0f - a2) * I, -5.0f, 5.0f);
+
+        // P = A·P·Aᵀ + Q  (A diagonale ⇒ (A·P·Aᵀ)[i][j] = A[i]·A[j]·P[i][j])
+        float A[3] = {1.0f, a1, a2};
+        for (int i = 0; i < 3; i++)
+            for (int j = 0; j < 3; j++)
+                _cov[i][j] = A[i] * A[j] * _cov[i][j] + ((i == j) ? _qNoise[i] : 0.0f);
+
+        // --- OBSERVATION ---
+        // Correction désactivée (paramètres Thévenin non identifiés) : l'EKF
+        // n'intègre que le coulomb (prédiction seule) → pas de biais de SoC.
+        if (!_useCorrection) { _confidence = 0.0f; _updates++; return true; }
+
+        // Physique : V_terminal = OCV + I·R0 + V1 + V2  (I>0 charge ⇒ V > OCV).
+        float soc_pct = _state[0] * 100.0f;
+        float voc = model->socToOcv(soc_pct, temp);      // V batterie
+        float vt_pred = voc + I * _R0 + _state[1] + _state[2];
+        float innov = vt - vt_pred;
+
+        // H = [dV_oc/ds (V par fraction), +1, +1] — dérivée numérique
+        float e = 0.01f;                                  // 1 % de SoC
+        float s2 = constrain(_state[0] + e, 0.0f, 1.0f);
+        float s1 = constrain(_state[0] - e, 0.0f, 1.0f);
+        float dvocs = (model->socToOcv(s2 * 100.0f, temp) - model->socToOcv(s1 * 100.0f, temp))
+                      / (s2 - s1);
+        float H[3] = {dvocs, 1.0f, 1.0f};
+
+        // S = H·P·Hᵀ + R
+        float PH[3];
+        for (int i = 0; i < 3; i++)
+            PH[i] = _cov[i][0] * H[0] + _cov[i][1] * H[1] + _cov[i][2] * H[2];
+        float r_eff = _rNoise * _rScale;
+        if (_loadRFactor > 1.0f && fabsf(I) > 0.2f) r_eff *= _loadRFactor;
+        float S = H[0] * PH[0] + H[1] * PH[1] + H[2] * PH[2] + r_eff;
+        if (!isfinite(S) || fabsf(S) < 1e-9f) return false;
+
+        float K[3] = { PH[0] / S, PH[1] / S, PH[2] / S };
+
+        _state[0] = constrain(_state[0] + K[0] * innov, 0.0f, 1.0f);
+        // ⚠️ 16/10/2026 — borner les états RC (|Vk| ≤ 5 V) : sans borne, une
+        // innovation forte (paramètres Thévenin incohérents) faisait diverger
+        // V1/V2 (seule la diagonale de P était contrôlée, pas leur amplitude).
+        _state[1] = constrain(_state[1] + K[1] * innov, -5.0f, 5.0f);
+        _state[2] = constrain(_state[2] + K[2] * innov, -5.0f, 5.0f);
+        if (!isfinite(_state[1]) || !isfinite(_state[2])) { reset(); return false; }
+
+        // P = (I − K·H)·P
+        for (int i = 0; i < 3; i++)
+            for (int j = 0; j < 3; j++)
+                _cov[i][j] -= K[i] * PH[j];
+        // Symétrie + garde
+        _cov[0][1] = _cov[1][0]; _cov[0][2] = _cov[2][0]; _cov[1][2] = _cov[2][1];
+        for (int i = 0; i < 3; i++) {
+            if (!isfinite(_cov[i][i]) || _cov[i][i] < 0.0f) { reset(); return false; }
+        }
+
+        _innov = innov;
+        _updates++;
+        // Confiance : 1 − normalisation de l'innovation (σ ≈ sqrt(S))
+        float sig = sqrtf(S);
+        float z = (sig > 1e-6f) ? fabsf(innov) / sig : 0.0f;
+        _confidence = 1.0f / (1.0f + z);     // [0,1], 1 = innovation faible
+        return true;
+    }
+
+    float getSoC() const { return _state[0] * 100.0f; }         // %
+    float getConfidence() const { return _confidence; }     // 0..1
+    float getInnovation() const { return _innov; }          // V
+    float getV1() const { return _state[1]; }
+    float getV2() const { return _state[2]; }
+    bool isInit() const { return _init; }
+    uint32_t getUpdates() const { return _updates; }
+
+private:
+    float    _state[3]  = {0.5f, 0.0f, 0.0f};
+    float    _cov[3][3] = {};
+    float    _qNoise[3]  = {1e-11f, 1e-6f, 1e-6f};
+    float    _rNoise     = 0.01f;
+    float    _loadRFactor = 1.0f;
+    float    _rScale = 1.0f;
+    bool     _useCorrection = true;
+    float    _R0 = 0.01f, _R1 = 0.0f, _tau1 = 20.0f, _R2 = 0.0f, _tau2 = 300.0f;
+    float    _capAh     = 26.0f;
+    bool     _init  = false;
+    float    _confidence = 0.0f;
+    float    _innov = 0.0f;
+    uint32_t _updates = 0;
 };
 
 #endif // BATTERY_MODELS_H

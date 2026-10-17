@@ -1,7 +1,7 @@
 {
   "name": "BatteryModels",
-  "version": "1.6.0",
-  "description": "Bibliothèque complète de modèles pour batteries (20 technologies) avec Thévenin dynamique et modèles thermiques avancés (Arrhenius exponentiel, RC thermique, OCV polynomial). v1.6.0: ajout SUPERCAP (supercondensateur EDLC, SoC basé énergie, ESR seule). v1.5.0: ajout LCO (Li-Cobalt), NiZn, NiCd, PbC (Plomb-Carbone). v1.4.0: seuils de détection (DetectionConfig) et réglages Kalman (KalmanTuning) configurables PAR TECHNOLOGIE — surcharge compile-time (macros BATTERYMODELS_*) et runtime (setters). Supportées: Plomb, Lithium, NiFe, Sodium-Ion, NiMH, Alkaline, NiCd, NiZn, LCO, PbC, Supercondensateur. Précision ±1.4% SoC (-30 à +80°C).",
+  "version": "1.6.6",
+  "description": "Bibliothèque complète de modèles pour batteries (20 technologies) avec Thévenin dynamique et modèles thermiques avancés (Arrhenius exponentiel, RC thermique, OCV polynomial). v1.6.6: AFFRLS (RlsIdentifier), EKF d'etat (SocEkf), OCV cubique, hysteresis, 2e RC, gassing, Peukert/eta variable. v1.6.0: ajout SUPERCAP (supercondensateur EDLC, SoC basé énergie, ESR seule). v1.5.0: ajout LCO (Li-Cobalt), NiZn, NiCd, PbC (Plomb-Carbone). v1.4.0: seuils de détection (DetectionConfig) et réglages Kalman (KalmanTuning) configurables PAR TECHNOLOGIE — surcharge compile-time (macros BATTERYMODELS_*) et runtime (setters). Supportées: Plomb, Lithium, NiFe, Sodium-Ion, NiMH, Alkaline, NiCd, NiZn, LCO, PbC, Supercondensateur. Précision ±1.4% SoC (-30 à +80°C).",
   "keywords": [
     "battery",
     "battery-model",
@@ -46,7 +46,7 @@
   },
   "authors": [
     {
-      "name": "Fo170",
+      "name": "Olivier FOURNET",
       "url": "https://github.com/Fo170",
       "email": "olivier.fournet@free.fr",
       "maintainer": true
