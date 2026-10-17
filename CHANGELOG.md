@@ -4,6 +4,19 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.6.7] - 2026-10-17
+
+### ✨ Added — macro de version `__<LIB>_H_VERSION__`
+
+Chaque header déclare désormais sa version via une macro préprocesseur,
+source **unique** (un projet hôte peut l'agréger, ex. page `/version`).
+
+### 🏷️ Divers
+
+- Version `1.6.6` → `1.6.7` (`library.json` + `library.properties`)
+
+---
+
 ## [1.6.6] - 2026-10-17 - AFFRLS (2ᵉ passe) + EKF d'état `SocEkf`
 
 Version **cumulative 1.6.2 → 1.6.6** (API 100 % additive, rétrocompatible).

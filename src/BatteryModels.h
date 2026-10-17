@@ -2,7 +2,7 @@
 #define BATTERY_MODELS_H
 
 // Version de la librairie (source UNIQUE — agrégée par src/liste_lib.h)
-#define __BATTERYMODELS_H_VERSION__ "1.6.6"
+#define __BATTERYMODELS_H_VERSION__ "1.6.7"
 
 /*
   BatteryModels v1.6.0 - Modèles paramétriques avancés pour batteries
