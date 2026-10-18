@@ -4,10 +4,34 @@
 [![PlatformIO](https://img.shields.io/badge/PlatformIO-Compatible-orange)](https://platformio.org/)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![GitHub release](https://img.shields.io/github/v/release/Fo170/BatteryModels)](https://github.com/Fo170/BatteryModels/releases)
-[![Version](https://img.shields.io/badge/Version-1.6.0-brightgreen.svg)](https://github.com/Fo170/BatteryModels/releases)
+[![Version](https://img.shields.io/badge/Version-1.6.9-brightgreen.svg)](https://github.com/Fo170/BatteryModels/releases)
 
 Bibliothèque complète de modèles paramétriques pour batteries, incluant tables OCV (Open Circuit Voltage), modèle Thévenin dynamique, et **modèles thermiques avancés (Arrhenius exponentiel)** pour 20 technologies différentes. **Header-only**, **PROGMEM-ready** pour AVR, et **cross-platform** (ESP32, ARM, etc.).
 
+> **🐛 v1.6.9 — `RlsIdentifier` : `isValid()` détecte enfin la saturation**  
+> La 1.6.8 testait des valeurs **déjà bornées** (`_theta[1]` est `constrain`é, `_tau` n'est
+> assigné qu'in-bounds, `getR1()` renvoie déjà une valeur ≤ `_r1Max`) : tous les tests étaient
+> vrais par construction, donc `isValid() ≡ (_updates ≥ 5)`. Le garde-fou ne détectait **aucun**
+> des symptômes terrain (R1 = 1,335 Ω masquée à 0,5 ; τ = 59,9 s collé à la borne ; R0 exactement
+> sur `_r0Min`). Désormais : **détection de saturation** via `getR1Raw()`, `isR1Saturated()`,
+> `isR0Saturated()`, `isTauSaturated()` — `isValid()` renvoie `false` dès qu'un paramètre est en butée.  
+> \+ **anti-windup** sur la projection de θ₂ (borner sans corriger `P` déplaçait la divergence vers
+> R0, puis windup → `reset()` = perte totale de l'apprentissage) ; **bornes `deserialize()` alignées**
+> sur `isValid()` ; **`SocEkf::setEfficiency()`** (l'EKF intégrait `I` brut alors que le compteur
+> `Coulomb` intègre `I·η` → divergence 1,9× à 5 A).  
+> ✅ **100% backward compatible** — layout de persistance `SER_LEN = 46 o` inchangé.
+>
+> **🐛 v1.6.8 — `RlsIdentifier` : R1 bornée**  
+> `R1 = b1/(1−a1)` n'était bornée **nulle part** : elle atteignait 1,2·10⁶ Ω en réel (Coulométre,
+> 17-18/10/2026) et polluait `SocEkf::setParams()` ainsi que la correction OCV. θ₂ est désormais
+> borné ⇒ `R1 ∈ [0, _r1Max]` (`setR1Max()`, défaut 0,5 Ω), `getR1()` borné en sortie.  
+> ✅ API additive.
+>
+> **✨ v1.6.6 — AFFRLS + EKF d'état**  
+> `RlsIdentifier` (AFFRLS/ARX, R0/R1/τ), `SocEkf` (EKF [SoC,V1,V2]), OCV cubique ajustable
+> (`setOcvPolynomial`), hystérésis one-state (`setHysteresis`), 2ᵉ branche RC + gassing
+> (`setSecondRC`/`setGassing`), Peukert/η variable.
+>
 > **🚀 v1.6.0 - SUPERCONDENSATEUR (EDLC)**  
 > Ajout de **TECH_SUPERCAP** : SoC basé énergie `(V² − V_min²)/(V_max² − V_min²)`,  
 > **ESR seule** (pas de polarisation RC), Peukert neutralisé, OCV fiable en lecture directe.  
@@ -27,7 +51,7 @@ Bibliothèque complète de modèles paramétriques pour batteries, incluant tabl
 > réglages Kalman (P/Q/R, segments ΔAh/ΔSoC, REST_LONG, confiance) sont désormais  
 > **configurables par technologie**, avec surcharge **compile-time** (macros `BATTERYMODELS_*`)  
 > et **runtime** (setters). Hiérarchie : setter runtime > macro > défaut de la technologie.  
-> BatteryKalman v1.6.0 consommera ces réglages via `getKalmanTuning()`.  
+> BatteryKalman v1.7.3+ consomme ces réglages via `getKalmanTuning()`.  
 > ✅ **100% backward compatible** — API additive, aucun changement de signature.  
 > Voir [`CHANGELOG.md`](CHANGELOG.md).
 >
@@ -60,7 +84,7 @@ Bibliothèque complète de modèles paramétriques pour batteries, incluant tabl
 - **Coulomb counting avec correction Peukert** : suivi précis de la charge déchargée
 - **Auto-détection de technologie** : analyse de la pente OCV et plage de tension
 - **Seuils de détection configurables par technologie (v1.4.0)** : dead-band courant, repos OCV, bande de tolérance, seuil de cycle — surcharge compile-time (`BATTERYMODELS_*`) et runtime (setters)
-- **Réglages Kalman exposés par technologie (v1.4.0)** : `getKalmanTuning()` (P/Q/R, segments ΔAh/ΔSoC, REST_LONG, confiance) pour BatteryKalman v1.6.0
+- **Réglages Kalman exposés par technologie (v1.4.0)** : `getKalmanTuning()` (P/Q/R, segments ΔAh/ΔSoC, REST_LONG, confiance) pour BatteryKalman v1.7.3+
 - **Détection des états de charge** : identification automatique des phases (Bulk, Absorption, Float, Repos)
 - **Gestion du vieillissement** : comptage de cycles et dérive de capacité
 - **PROGMEM sur AVR** : constantes stockées en mémoire flash, ~1.5 Ko de RAM économisés
@@ -123,7 +147,7 @@ Bibliothèque complète de modèles paramétriques pour batteries, incluant tabl
 ### Via Arduino Library Manager (Recommended) ⭐
 1. Arduino IDE : `Croquis > Inclure une bibliothèque > Gérer les bibliothèques`
 2. Recherchez `BatteryModels`
-3. Installez la dernière version (1.6.0+)
+3. Installez la dernière version (1.6.9+)
 
 ### Via Arduino IDE (Manual ZIP)
 1. Téléchargez le ZIP depuis [Latest Release](https://github.com/Fo170/BatteryModels/releases)
@@ -132,10 +156,10 @@ Bibliothèque complète de modèles paramétriques pour batteries, incluant tabl
 ### Via PlatformIO (Recommended) ⭐
 Ajoutez à votre `platformio.ini` :
 
-**Pour v1.6.0 (stable):**
+**Pour v1.6.9 (stable):**
 ```ini
 lib_deps =
-    https://github.com/Fo170/BatteryModels.git@^1.6.0
+    https://github.com/Fo170/BatteryModels.git#v1.6.9
 ```
 
 **Ou via le registry:**
@@ -152,15 +176,15 @@ lib_deps =
 
 ### Compatibilité avec BatteryKalman
 
-Cette bibliothèque est **totalement compatible** avec [BatteryKalman](https://github.com/Fo170/BatteryKalman) (v1.5.3+) pour une estimation optimale du SoC.
+Cette bibliothèque est **totalement compatible** avec [BatteryKalman](https://github.com/Fo170/BatteryKalman) (v1.7.3+) pour une estimation optimale du SoC.
 
 **Avantages de la combinaison**:
 - **BatteryModels** fournit le modèle physique précis de la batterie (OCV, Thévenin avancé, thermique)
 - **BatteryKalman** fusionne plusieurs estimations (OCV, Coulomb, Arrhenius) via un filtre de Kalman adaptatif
 - Résultat : **±0.8% erreur SoC** sur -30 à +80°C (vs ±1.4% seul BatteryModels)
-- **v1.3.0** : la correction de `detectChargeState()` (test `near_float` avant `in_rest`) restaure la détection `State_FLOAT` — point de référence « batterie pleine » (SoC = 100 %) indispensable à l'apprentissage de capacité de BatteryKalman (intégrée dans BatteryKalman v1.5.3)
+- **v1.3.0** : la correction de `detectChargeState()` (test `near_float` avant `in_rest`) restaure la détection `State_FLOAT` — point de référence « batterie pleine » (SoC = 100 %) indispensable à l'apprentissage de capacité de BatteryKalman (intégrée dans BatteryKalman depuis v1.5.3)
 
-**Utilisation combinée** (exemple, API BatteryKalman v1.6.0):
+**Utilisation combinée** (exemple, API BatteryKalman v1.7.3):
 ```cpp
 #include <BatteryModels.h>
 #include <BatteryKalman.h>
@@ -171,7 +195,7 @@ SoCData socData;
 KalmanState2D kalmanState;
 
 BatteryModel bat(TECH_LIFEPO4, 4, 100.0f, 5.0f);
-Coulomb coulomb;  // Compteur coulombs (CoulombsAh v1.1+)
+Coulomb coulomb;  // Compteur coulombs (CoulombsAh v1.3.1+)
 BatteryKalman kalman(&socData, &kalmanState, &bat, &coulomb);
 
 // Dans la boucle (10 Hz)
@@ -179,7 +203,7 @@ float v_meas = readVoltage();
 float i_meas = readCurrent();
 float t_meas = readTemp();
 coulomb.addMeasurement(i_meas);       // alimenter le compteur coulombs
-kalman.update(v_meas, i_meas, t_meas); // API v1.6.0 : update(V, I, T)
+kalman.update(v_meas, i_meas, t_meas); // API v1.7.x : update(V, I, T)
 float soc_optimal = kalman.getSoC();  // Estimation fusionnée
 ```
 
@@ -295,7 +319,7 @@ BatteryModel(BatteryTech tech = TECH_AGM, uint8_t cells = 6,
 | Méthode | Description |
 |---------|-------------|
 | `getDetectionConfig()` | `const DetectionConfig&` — dead-band courant, float min/facteur, V_tol pct/min, repos OCV, seuil cycle |
-| `getKalmanTuning()` | `const KalmanTuning&` — P/Q/R, segments ΔAh/ΔSoC, REST_LONG, confiance (consommé par BatteryKalman v1.6.0) |
+| `getKalmanTuning()` | `const KalmanTuning&` — P/Q/R, segments ΔAh/ΔSoC, REST_LONG, confiance (consommé par BatteryKalman v1.7.3+) |
 
 **Setters runtime** (priorité la plus haute, `resetOverrides()` pour revenir aux défauts) :
 
@@ -364,6 +388,47 @@ void resetOverrides();
 | `getCellCount()` / `getNominalVoltage()` / `getNominalCapacity()` | Caractéristiques |
 | `getInternalResistance()` | Résistance interne effective (mΩ) |
 | `getPolarizationVoltage()` | Tension de polarisation actuelle (V) |
+
+### AFFRLS — `RlsIdentifier` (v1.6.6+, durci en v1.6.8/v1.6.9)
+Identification en ligne des paramètres Thévenin (R0, R1, τ1) par moindres carrés récursifs
+à facteur d'oubli adaptatif, sur un régresseur ARX `y[k] = a1·y[k−1] + R0·I[k] + (b1 − a1·R0)·I[k−1]`.
+
+| Méthode | Description |
+|---------|-------------|
+| `begin()` | Réinitialise l'identificateur |
+| `update(Vt, I, ocv, dt)` | Un pas d'identification (retourne `true` si mis à jour) |
+| `setBounds(r0_min, r0_max, tau_min, tau_max)` | Bornes R0 (Ω) et τ (s) |
+| `setR1Max(ohm)` | **v1.6.8** — borne de la 1re branche RC (défaut 0,5 Ω) |
+| `setExcitationThreshold(dI)` / `setLongWindowThreshold(dI)` / `setAdaptiveMax(dI)` | Seuils d'excitation (1 pas / fenêtre longue / borne du seuil adaptatif) |
+| `setStepThreshold(dI)` | Seuil du R0 direct ΔV/ΔI |
+| `setUpdatePeriod(s)` | Pas nominal (sert au recalcul de τ après restauration) |
+| `getR0()` / `getR1()` / `getTau1()` | Paramètres identifiés (bornés) |
+| `getR1Raw()` | **v1.6.9** — R1 **brute**, non bornée (diagnostic) |
+| `isR1Saturated()` / `isR0Saturated()` / `isTauSaturated()` | **v1.6.9** — paramètre collé à une borne |
+| `isValid()` | **v1.6.9** — `false` dès qu'un paramètre est **en butée** (modèle inexploitable) |
+| `getUpdates()` / `getLambda()` / `getR0Step()` | Diagnostic (nb de mises à jour, λ, dernier ΔV/ΔI) |
+
+> ⚠️ **Ne pas se contenter de `_updates ≥ 5`** : c'était le bug de la v1.6.8 — les tests de
+> plausibilité portaient sur des valeurs déjà bornées, donc toujours vraies. Un paramètre
+> **saturé** signifie que le modèle n'est pas identifié et ne doit pas être injecté dans l'EKF
+> ni dans la correction OCV.
+
+### EKF d'état — `SocEkf` (v1.6.6+)
+EKF à état `x = [SoC, V1, V2]`, observation `Vt = OCV(SoC) + I·R0 + V1 + V2` (I > 0 = charge).
+
+| Méthode | Description |
+|---------|-------------|
+| `begin()` / `setInitialSoC(pct)` | Initialisation |
+| `setParams(r0, r1, tau1, r2, tau2)` | Paramètres Thévenin (Ω, s) |
+| `setCapacity(ah)` / `setNoise(q_soc, q_v, r_meas)` | Capacité et bruits Q/R |
+| `setVoltageCorrection(bool)` | `false` ⇒ l'EKF suit le coulomb (prédiction seule) |
+| `setEfficiency(eta_chg, eta_dis)` | **v1.6.9** — applique le même η que `Coulomb` à `dSOC/dt` |
+| `update(model, vt, I, temp, dt)` | Un pas EKF |
+| `getSoC()` / `getConfidence()` | Sorties |
+
+> ⚠️ **v1.6.9** : sans `setEfficiency()`, l'EKF intègre `I` brut alors que `Coulomb` intègre
+> `I·η` → les deux SoC divergent d'un facteur 1/η (1,9× à 5 A) et un fail-safe de comparaison
+> peut re-seeder en boucle.
 
 ## 🧮 Modèle Thévenin (v1.2 - Avancé)
 
