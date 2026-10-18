@@ -2,7 +2,7 @@
 #define BATTERY_MODELS_H
 
 // Version de la librairie (source UNIQUE — agrégée par src/liste_lib.h)
-#define __BATTERYMODELS_H_VERSION__ "1.6.8"
+#define __BATTERYMODELS_H_VERSION__ "1.6.9"
 
 /*
   BatteryModels v1.6.0 - Modèles paramétriques avancés pour batteries
@@ -1870,13 +1870,27 @@ public:
         // sans borne sur θ2, R1 explosait (jusqu'à 1,2e6 Ω observé) et polluait
         // l'EKF (setParams(R0,R1,τ)) ainsi que l'affichage. On borne b1 pour que
         // R1 ∈ [0, _r1Max], puis on en déduit θ2.
+        // ⚠️ v1.6.9 (F5) — la projection seule DÉPLAÇAIT la divergence : à courant
+        // quasi constant, θ1 (R0) et θ2 sont quasi colinéaires, donc borner b1
+        // faisait absorber tout l'écart par R0 qui dérivait vers _r0Max, et P non
+        // corrigée provoquait un windup (λ→λmin, trace de P → reset() = perte
+        // totale de l'apprentissage). Anti-windup : si la projection agit, on
+        // réinitialise la sous-covariance (R0,R1) et on gèle l'oubli (λ = λmax).
         {
             float a1c = constrain(_theta[0], 1e-6f, 0.999999f);
             float b1 = _theta[2] + a1c * _theta[1];
             float b1max = _r1Max * (1.0f - a1c);
-            if (!isfinite(b1) || b1 < 0.0f) b1 = 0.0f;
-            if (b1 > b1max) b1 = b1max;
-            _theta[2] = b1 - a1c * _theta[1];
+            float b1c = b1;
+            if (!isfinite(b1c) || b1c < 0.0f) b1c = 0.0f;
+            if (b1c > b1max) b1c = b1max;
+            if (b1c != b1) {
+                // Projection active → anti-windup sur le bloc (R0, R1).
+                _cov[1][1] = 0.01f;
+                _cov[2][2] = 0.01f;
+                _cov[1][2] = _cov[2][1] = 0.0f;
+                _lambda = _lambdaMax;
+            }
+            _theta[2] = b1c - a1c * _theta[1];
         }
 
         // P = (P − K·φᵀ·P) / λ
@@ -1922,6 +1936,26 @@ public:
     // θ = [a1, R0, b1 − a1·R0] → a1 = θ0, R0 = θ1, b1 = θ2 + a1·θ1
     float getR0() const { return constrain(_theta[1], _r0Min, _r0Max); }
     float getTau1() const { return _tau; }
+    /** R1 BRUTE (non bornée) — pour diagnostiquer la saturation (v1.6.9). */
+    float getR1Raw() const {
+        float a1 = _theta[0];
+        if (!isfinite(a1) || fabsf(1.0f - a1) < 1e-6f) return NAN;
+        float b1 = _theta[2] + a1 * _theta[1];
+        return b1 / (1.0f - a1);
+    }
+    /** true si R1 est en butée (modèle non exploitable, v1.6.9). */
+    bool isR1Saturated() const {
+        float r = getR1Raw();
+        return !isfinite(r) || r < 0.0f || r >= _r1Max * 0.999f;
+    }
+    /** true si R0 est collé à une borne (modèle non exploitable, v1.6.9). */
+    bool isR0Saturated() const {
+        return _theta[1] <= _r0Min * 1.001f || _theta[1] >= _r0Max * 0.999f;
+    }
+    /** true si τ est collé à une borne (modèle non exploitable, v1.6.9). */
+    bool isTauSaturated() const {
+        return !isfinite(_tau) || _tau <= _tauMin * 1.001f || _tau >= _tauMax * 0.999f;
+    }
     float getR1() const {
         float a1 = _theta[0];
         if (fabsf(1.0f - a1) < 1e-6f) return 0.0f;
@@ -1935,19 +1969,21 @@ public:
     float getR0Step() const { return _r0Step; }   // dernier ΔV/ΔI (Ω) ou NAN
 
     uint32_t getUpdates() const { return _updates; }
-    // v1.6.8 : validité = nb de mises à jour suffisant ET paramètres PLAUSIBLES.
-    // Avant, `_valid` passait à vrai dès 5 mises à jour sans aucun contrôle de
-    // qualité : dès que l'excitation s'est mise à fonctionner (v5.15 firmware),
-    // `isValid()` était vrai avec R1 = 1,3 Ω et τ collé à la borne haute, et le
-    // firmware injectait ces valeurs dans l'EKF et dans correctVoltageToOCV.
+    // v1.6.9 (F3) : la v1.6.8 testait des valeurs DÉJÀ bornées (`_theta[1]` est
+    // constrainé, `_tau` n'est assigné qu'in-bounds, `getR1()` renvoie déjà une
+    // valeur ≤ _r1Max) ⇒ tous les tests étaient vrais par construction et
+    // `isValid() ≡ _valid ≡ (_updates ≥ 5)`. Le garde-fou ne détectait donc
+    // AUCUN des symptômes de l'incident terrain (R1 = 1,335 Ω masquée à 0,5,
+    // τ = 59,9 s collé à la borne haute, R0 exactement sur _r0Min).
+    // Désormais on détecte la SATURATION : un paramètre en butée signifie que le
+    // modèle n'est pas identifié, donc inexploitable pour l'EKF et la correction OCV.
     bool isValid() const {
         if (!_valid) return false;
-        if (!isfinite(_theta[1]) || _theta[1] < _r0Min || _theta[1] > _r0Max) return false;
-        if (!isfinite(_tau) || _tau < _tauMin || _tau > _tauMax) return false;
-        float a1 = _theta[0];
-        if (!isfinite(a1) || a1 <= 0.0f || a1 >= 1.0f) return false;
-        float r1 = getR1();                      // déjà borné [0, _r1Max]
-        if (!isfinite(r1) || r1 < 0.0f) return false;
+        if (!isfinite(_theta[0]) || _theta[0] <= 0.0f || _theta[0] >= 0.999999f) return false;
+        if (!isfinite(_theta[1])) return false;
+        if (isR0Saturated())  return false;
+        if (isTauSaturated()) return false;
+        if (isR1Saturated())  return false;
         return true;
     }
     float getLambda() const { return _lambda; }
@@ -1984,7 +2020,12 @@ public:
         for (int i = 0; i < 3; i++) if (!isfinite(th[i])) return false;
         for (int i = 0; i < 6; i++) if (!isfinite(ps[i])) return false;
         if (!isfinite(lam)) return false;
-        if (th[1] < _r0Min * 0.5f || th[1] > _r0Max * 1.5f) return false;
+        // v1.6.9 (F6) : bornes ALIGNÉES sur celles de la mise à jour. Avant, on
+        // acceptait θ1 ∈ [0.5·_r0Min, 1.5·_r0Max] = [0.025, 3.0] Ω puis `isValid()`
+        // exigeait [0.05, 2.0] → un état FRAM dans ]2.0, 3.0] était restauré
+        // « valide » puis jugé invalide, désactivant silencieusement la correction
+        // tension jusqu'au prochain pas réussi.
+        if (th[1] < _r0Min || th[1] > _r0Max) return false;
         for (int i = 0; i < 3; i++) _theta[i] = th[i];
         _cov[0][0] = ps[0]; _cov[0][1] = ps[1]; _cov[1][0] = ps[1];
         _cov[0][2] = ps[2]; _cov[2][0] = ps[2];
@@ -2008,6 +2049,18 @@ public:
         _ringIdx = 0;
         _jitterEma = 0.0f;
         _r0Step = NAN;
+
+        // v1.6.9 (F6) : `_r1Max` n'étant pas persisté, un θ2 restauré peut dépasser
+        // la borne courante → on re-projette immédiatement (sinon R1 resterait
+        // hors bornes jusqu'au prochain pas, et `isValid()` dépendrait de l'ordre).
+        {
+            float a1c = constrain(_theta[0], 1e-6f, 0.999999f);
+            float b1 = _theta[2] + a1c * _theta[1];
+            float b1max = _r1Max * (1.0f - a1c);
+            if (!isfinite(b1) || b1 < 0.0f) b1 = 0.0f;
+            if (b1 > b1max) b1 = b1max;
+            _theta[2] = b1 - a1c * _theta[1];
+        }
         return true;
     }
 
@@ -2108,6 +2161,21 @@ public:
         if (r_meas > 0.0f) _rNoise = r_meas;
     }
     void setCapacity(float c_ah) { if (isfinite(c_ah) && c_ah > 0.5f) _capAh = c_ah; }
+    /**
+     * @brief Rendement faradique appliqué à l'intégration du SoC (v1.6.9, F7)
+     *
+     * Le compteur `Coulomb` intègre `I·η` ; l'EKF intégrait `I` brut → les deux
+     * SoC divergeaient d'un facteur 1/η en charge (1,9× à 5 A). Le fail-safe
+     * « |SoC_EKF − SoC_coulomb| > 40 % » se déclenchait alors sur un écart de
+     * MODÈLE et re-seedait en boucle. On applique donc le même η à la prédiction
+     * de SoC (la chute ohmique `I·R0` continue d'utiliser le courant RÉEL).
+     */
+    void setEfficiency(float eta_charge, float eta_discharge) {
+        if (isfinite(eta_charge) && eta_charge > 0.0f && eta_charge <= 1.0f)
+            _etaCharge = eta_charge;
+        if (isfinite(eta_discharge) && eta_discharge > 0.0f && eta_discharge <= 1.0f)
+            _etaDischarge = eta_discharge;
+    }
     // Sous charge (|I| > 0.2 A), si R0 est incertain, on gonfle le bruit de mesure
     // → l'EKF fait davantage confiance au coulomb (principe « coulomb = référence »).
     void setLoadRFactor(float f) { if (f >= 1.0f) _loadRFactor = f; }
@@ -2131,7 +2199,10 @@ public:
 
         // --- PRÉDICTION ---
         // Convention projet : I > 0 = CHARGE → le SoC AUGMENTE.
-        float dsoc = (I * dt / 3600.0f) / _capAh;           // fraction
+        // v1.6.9 (F7) : le même rendement η que `Coulomb` est appliqué à
+        // l'intégration du SoC, sinon les deux estimateurs divergent de 1/η.
+        float eta = (I > 0.0f) ? _etaCharge : (I < 0.0f ? _etaDischarge : 1.0f);
+        float dsoc = (I * eta * dt / 3600.0f) / _capAh;     // fraction
         _state[0] = constrain(_state[0] + dsoc, 0.0f, 1.0f);
         float a1 = expf(-dt / _tau1), a2 = expf(-dt / _tau2);
         // Bornage des états RC aussi en PRÉDICTION (R-15) : la branche correction
@@ -2220,6 +2291,8 @@ private:
     bool     _useCorrection = true;
     float    _R0 = 0.01f, _R1 = 0.0f, _tau1 = 20.0f, _R2 = 0.0f, _tau2 = 300.0f;
     float    _capAh     = 26.0f;
+    float    _etaCharge = 1.0f;      // v1.6.9 (F7) : rendement appliqué à dSOC/dt
+    float    _etaDischarge = 1.0f;
     bool     _init  = false;
     float    _confidence = 0.0f;
     float    _innov = 0.0f;

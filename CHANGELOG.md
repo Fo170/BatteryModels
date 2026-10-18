@@ -4,6 +4,49 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.6.9] - 2026-10-18
+
+### 🐛 Fixed — `isValid()` de `RlsIdentifier` ne détectait rien (régression de la 1.6.8)
+
+La 1.6.8 testait des valeurs **déjà bornées** : `_theta[1]` est `constrain`é à
+`[_r0Min,_r0Max]`, `_tau` n'est assigné qu'in-bounds, et `getR1()` renvoie déjà une
+valeur ≤ `_r1Max`. Tous les tests étaient donc vrais par construction :
+`isValid() ≡ _valid ≡ (_updates ≥ 5)`. Le garde-fou ne détectait **aucun** des
+symptômes de l'incident terrain (R1 = 1,335 Ω masquée à 0,5, τ = 59,9 s collé à la
+borne haute, R0 exactement sur `_r0Min`).
+
+**Correctif** : on détecte la **saturation**, pas l'appartenance à l'intervalle.
+Nouveaux accesseurs `getR1Raw()`, `isR1Saturated()`, `isR0Saturated()`,
+`isTauSaturated()`. `isValid()` renvoie `false` dès qu'un paramètre est en butée.
+
+### 🐛 Fixed — anti-windup sur la projection de θ₂ (F5)
+
+Borner θ₂ sans toucher à la covariance **déplaçait** la divergence : à courant quasi
+constant θ₁ (R0) et θ₂ sont quasi colinéaires, donc tout l'écart était absorbé par R0
+qui dérivait vers `_r0Max`, et P non corrigée provoquait un windup (λ→λmin, trace de P
+→ `reset()` = perte totale de l'apprentissage). Quand la projection agit, on
+réinitialise maintenant la sous-covariance (R0,R1) et on gèle l'oubli (λ = λmax).
+
+### 🐛 Fixed — bornes asymétriques `deserialize()` / `isValid()` (F6)
+
+`deserialize()` acceptait `θ1 ∈ [0.5·_r0Min, 1.5·_r0Max]` = [0.025, 3.0] Ω puis
+`isValid()` exigeait [0.05, 2.0] : un état FRAM dans ]2.0, 3.0] était restauré
+« valide » puis jugé invalide, désactivant silencieusement la correction tension.
+Bornes désormais alignées, et θ₂ re-projeté au chargement (`_r1Max` n'est pas persisté).
+
+### ✨ Added — `SocEkf::setEfficiency(eta_charge, eta_discharge)` (F7)
+
+`Coulomb` intègre `I·η` mais `SocEkf` intégrait `I` brut → les deux SoC divergeaient
+d'un facteur 1/η (1,9× à 5 A) et le fail-safe « |SoC_EKF − SoC_coulomb| > 40 % »
+re-seedait en boucle sur un écart de *modèle*. Le rendement est maintenant appliqué à
+`dSOC/dt` (la chute ohmique `I·R0` continue d'utiliser le courant réel).
+
+### ⚠️ Compatibilité
+
+Layout de persistance (`SER_LEN` = 46 o) inchangé. Aucune API retirée.
+
+---
+
 ## [1.6.8] - 2026-10-18
 
 ### 🐛 Fixed — `RlsIdentifier` : R1 non bornée et validité sans contrôle
