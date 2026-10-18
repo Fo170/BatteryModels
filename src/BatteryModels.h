@@ -2,7 +2,7 @@
 #define BATTERY_MODELS_H
 
 // Version de la librairie (source UNIQUE — agrégée par src/liste_lib.h)
-#define __BATTERYMODELS_H_VERSION__ "1.6.7"
+#define __BATTERYMODELS_H_VERSION__ "1.6.8"
 
 /*
   BatteryModels v1.6.0 - Modèles paramétriques avancés pour batteries
@@ -1752,6 +1752,12 @@ public:
         if (isfinite(tau_min) && tau_min > 0.0f) _tauMin = tau_min;
         if (isfinite(tau_max) && tau_max > _tauMin) _tauMax = tau_max;
     }
+    // v1.6.8 : borne de R1 (1re branche RC). R1 n'était bornée NULLE PART : θ2
+    // dérivait et getR1() pouvait valoir 1e6 Ω (observé en réel le 17-18/10/2026
+    // sur le Coulométre, rls_upd>25 000). R1 > 0,5 Ω est non physique pour une
+    // branche de polarisation (l'essentiel de la chute est déjà dans R0).
+    void setR1Max(float r1_max) { if (isfinite(r1_max) && r1_max > 0.0f) _r1Max = r1_max; }
+    float getR1Max() const { return _r1Max; }
     void setLambda(float lambda_min, float lambda_max, float kappa) {
         if (lambda_min > 0.90f && lambda_min <= 1.0f) _lambdaMin = lambda_min;
         if (lambda_max >= _lambdaMin && lambda_max <= 1.0f) _lambdaMax = lambda_max;
@@ -1860,6 +1866,19 @@ public:
         // valeurs non physiques (R0 négatif observé en réel, courant quasi constant).
         _theta[1] = constrain(_theta[1], _r0Min, _r0Max);
 
+        // ⚠️ v1.6.8 — Borne R1 via θ2. b1 = θ2 + a1·θ1 et R1 = b1/(1−a1) :
+        // sans borne sur θ2, R1 explosait (jusqu'à 1,2e6 Ω observé) et polluait
+        // l'EKF (setParams(R0,R1,τ)) ainsi que l'affichage. On borne b1 pour que
+        // R1 ∈ [0, _r1Max], puis on en déduit θ2.
+        {
+            float a1c = constrain(_theta[0], 1e-6f, 0.999999f);
+            float b1 = _theta[2] + a1c * _theta[1];
+            float b1max = _r1Max * (1.0f - a1c);
+            if (!isfinite(b1) || b1 < 0.0f) b1 = 0.0f;
+            if (b1 > b1max) b1 = b1max;
+            _theta[2] = b1 - a1c * _theta[1];
+        }
+
         // P = (P − K·φᵀ·P) / λ
         for (int i = 0; i < 3; i++) {
             for (int j = 0; j < 3; j++) {
@@ -1907,12 +1926,30 @@ public:
         float a1 = _theta[0];
         if (fabsf(1.0f - a1) < 1e-6f) return 0.0f;
         float b1 = _theta[2] + a1 * _theta[1];
-        return b1 / (1.0f - a1);
+        float r1 = b1 / (1.0f - a1);
+        // v1.6.8 : garde de sortie — R1 d'une branche de polarisation ne peut pas
+        // dépasser _r1Max (0,5 Ω). Protège les consommateurs même si θ2 dérive.
+        if (!isfinite(r1) || r1 < 0.0f) return 0.0f;
+        return (r1 > _r1Max) ? _r1Max : r1;
     }
     float getR0Step() const { return _r0Step; }   // dernier ΔV/ΔI (Ω) ou NAN
 
     uint32_t getUpdates() const { return _updates; }
-    bool isValid() const { return _valid; }
+    // v1.6.8 : validité = nb de mises à jour suffisant ET paramètres PLAUSIBLES.
+    // Avant, `_valid` passait à vrai dès 5 mises à jour sans aucun contrôle de
+    // qualité : dès que l'excitation s'est mise à fonctionner (v5.15 firmware),
+    // `isValid()` était vrai avec R1 = 1,3 Ω et τ collé à la borne haute, et le
+    // firmware injectait ces valeurs dans l'EKF et dans correctVoltageToOCV.
+    bool isValid() const {
+        if (!_valid) return false;
+        if (!isfinite(_theta[1]) || _theta[1] < _r0Min || _theta[1] > _r0Max) return false;
+        if (!isfinite(_tau) || _tau < _tauMin || _tau > _tauMax) return false;
+        float a1 = _theta[0];
+        if (!isfinite(a1) || a1 <= 0.0f || a1 >= 1.0f) return false;
+        float r1 = getR1();                      // déjà borné [0, _r1Max]
+        if (!isfinite(r1) || r1 < 0.0f) return false;
+        return true;
+    }
     float getLambda() const { return _lambda; }
 
     // --- Persistance (FRAM) ---
@@ -1983,6 +2020,7 @@ private:
     float    _kappa      = 5.0f;
     float    _r0Min      = 0.05f;    // 50 mΩ
     float    _r0Max      = 2.0f;
+    float    _r1Max      = 0.5f;     // 500 mΩ — borne de la 1re branche RC (v1.6.8)
     float    _tauMin     = 2.0f;
     float    _tauMax     = 60.0f;
     float    _dIThr      = 0.15f;    // seuil d'excitation MINI AFFRLS (A) — plancher du seuil adaptatif

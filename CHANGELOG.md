@@ -4,6 +4,39 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.6.8] - 2026-10-18
+
+### 🐛 Fixed — `RlsIdentifier` : R1 non bornée et validité sans contrôle
+
+**Symptôme terrain** (Coulométre, 17-18/10/2026, `rls_upd` > 25 000) :
+`R1 = 1,335 Ω` puis jusqu'à **1,24·10⁶ Ω** selon les relevés, `τ` collé à la
+borne haute (59,9 s sur 60), `R0` à la borne basse. Ces valeurs étaient
+injectées dans `SocEkf::setParams()` et dans `BatteryModel` (correction OCV),
+d'où un SoC_EKF à 90,2 % alors que la tension donnait 77,1 %.
+
+**Cause** : `_theta[2]` (⇒ `b1 = θ2 + a1·θ1`, donc `R1 = b1/(1−a1)`) n'était
+borné **nulle part** — contrairement à `θ0` (a1) et `θ1` (R0). Avec `a1 → 1`,
+`1−a1 → 0` et le moindre écart sur `b1` faisait exploser `R1`.
+
+**Correctifs**
+
+| # | Correction |
+|---|---|
+| 1 | `θ2` borné après chaque mise à jour pour que `R1 ∈ [0, _r1Max]` (`_r1Max` = 0,5 Ω par défaut) |
+| 2 | `getR1()` borné en sortie (garde-fou même si `θ2` dérive) |
+| 3 | `isValid()` ne renvoie plus `true` sur le seul compteur `_updates ≥ 5` : il exige `R0 ∈ [_r0Min,_r0Max]`, `τ ∈ [_tauMin,_tauMax]`, `a1 ∈ ]0,1[` et `R1` finie ≥ 0 |
+
+### ✨ Added
+
+- `setR1Max(float)` / `getR1Max()` — borne de la 1re branche RC.
+
+### ⚠️ Compatibilité
+
+Layout de persistance (`SER_LEN` = 46 o) **inchangé** : `_r1Max` n'est pas
+persisté, sa valeur par défaut suffit. Aucune API retirée.
+
+---
+
 ## [1.6.7] - 2026-10-17
 
 ### ✨ Added — macro de version `__<LIB>_H_VERSION__`
