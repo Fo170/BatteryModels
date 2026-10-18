@@ -2,7 +2,7 @@
 #define BATTERY_MODELS_H
 
 // Version de la librairie (source UNIQUE — agrégée par src/liste_lib.h)
-#define __BATTERYMODELS_H_VERSION__ "1.6.9"
+#define __BATTERYMODELS_H_VERSION__ "1.6.10"
 
 /*
   BatteryModels v1.6.0 - Modèles paramétriques avancés pour batteries
@@ -794,18 +794,19 @@ private:
         _configDirty = false;
     }
 
-    // Rendement variable (Peukert) — helper privé (v1.6.5, phase 7).
+    // v1.6.10 — rendement faradique η CONSTANT, découplé de Peukert.
+    // ⚠️ La loi appliquée jusqu'à la 1.6.9 était η(I) = η_base·(I_ref/|I|)^(n−1),
+    // écrêtée à [0,5 ; 1]. Deux défauts (identiques à CoulombsAh 1.3.0) :
+    //   1. Sens inversé en décharge : Peukert décrit la capacité DISPONIBLE, qui
+    //      décroît avec |I| ⇒ les Ah prélevés doivent être AMPLIFIÉS, pas réduits.
+    //      Appliquée comme rendement, la loi réduisait la décharge (58 % à 5 A).
+    //   2. Écrêtée à 1,0, elle vaut exactement 1,0 pour |I| ≤ ~1 A : elle
+    //      n'applique aucune correction dans le régime de faible courant.
+    // La loi de Peukert reste disponible là où elle est juste :
+    // getEffectiveCapacity(I) / updateCoulombCount().
     float _variableEfficiency(float base, float current) const {
-        float n = getPeukertExponent();
-        if (n <= 1.0f) return base;
-        float I = fabsf(current);
-        if (!isfinite(I) || I < 1e-3f) return base;
-        float iref = getPeukertReferenceRate();
-        if (iref <= 0.0f) return base;
-        float eta = base * powf(iref / I, n - 1.0f);
-        if (eta > 1.0f) eta = 1.0f;
-        if (eta < 0.5f) eta = 0.5f;
-        return eta;
+        (void)current;   // η ne dépend pas du courant (signature conservée)
+        return base;
     }
 
     float calculateRsocWithSaturation(float s_ref, float gamma_soc, float max_ratio) const {        if (s_ref <= 0.0f) return max_ratio;

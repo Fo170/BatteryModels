@@ -4,6 +4,42 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.6.10] - 2026-10-18
+
+### 🐛 Fixed — rendement η découplé de Peukert (`_variableEfficiency`)
+
+`getChargeEfficiency()` / `getDischargeEfficiency()` appliquaient la loi de Peukert comme
+rendement faradique : `η(I) = η_base·(I_ref/|I|)^(n−1)`, borné à `[0,5 ; 1]`. Deux défauts
+indépendants (identiques à ceux corrigés dans `CoulombsAh` 1.3.1) :
+
+| # | Défaut | Effet chiffré |
+|---|---|---|
+| 1 | **Sens inversé en décharge.** Peukert décrit la capacité **disponible**, qui décroît avec `\|I\|` : les Ah prélevés à fort courant doivent être **amplifiés**, pas réduits. | Avec `η_base = 1,00`, `I_ref = 1,30 A`, `n = 1,40` : `η(5 A) = 0,583` → la décharge n'était comptée qu'à **58,3 %** ⇒ SoC descendant 42 % trop lentement (biais optimiste). |
+| 2 | **Écrêtement à 1,0 annulant le correctif en charge.** La loi dépasse 1,0 dès `\|I\| < I_ref·η_base^(1/(n−1))`. | Avec `η_base = 0,90` : seuil à **0,999 A** ⇒ `η = 1,000` pour tout `\|I\| ≲ 1 A`, soit le régime de faible courant visé. Seul le bulk > 1 A était corrigé. |
+
+**Correctif** : `η` est **constant** (le paramètre `current` est ignoré) :
+
+```
+η(I) = η_base
+```
+
+La loi de Peukert reste appliquée là où elle est physiquement juste : `getEffectiveCapacity(I)`
+et `updateCoulombCount()` (facteur `> 1` qui **amplifie** les Ah prélevés à fort courant).
+
+### ⚠️ Compatibilité
+
+API **inchangée** (mêmes signatures ; le paramètre `current` est simplement ignoré).
+`SER_LEN` = 46 o inchangé.
+
+### 📚 Documentation
+
+`README.md` documente désormais, pour chaque version, **ce qui était faux / pourquoi / la formule
+exacte**, ainsi que les **formules complètes des 8 algorithmes** (Thévenin 2 RC, OCV cubique +
+bissection, correction ohmique, hystérésis Plett, gassing, Peukert, AFFRLS, EKF) et les
+**sources vérifiables** (URL + date de consultation).
+
+---
+
 ## [1.6.9] - 2026-10-18
 
 ### 🐛 Fixed — `isValid()` de `RlsIdentifier` ne détectait rien (régression de la 1.6.8)
