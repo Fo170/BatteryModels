@@ -1,6 +1,6 @@
 {
   "name": "BatteryModels",
-  "version": "1.6.10",
+  "version": "1.6.11",
   "description": "Bibliothèque complète de modèles pour batteries (20 technologies) avec Thévenin dynamique et modèles thermiques avancés (Arrhenius exponentiel, RC thermique, OCV polynomial). v1.6.10: rendement eta DECOUPLE de Peukert (constant ; la loi Peukert inversait le sens en decharge et s'annulait en charge sous ~1 A). v1.6.9: RlsIdentifier - isValid() detecte la SATURATION (R0/tau/R1 en butee) ; anti-windup sur theta2 ; bornes deserialize alignees ; SocEkf::setEfficiency(). v1.6.8: R1 bornee (theta2), getR1() borne en sortie. v1.6.6: AFFRLS (RlsIdentifier), EKF d'etat (SocEkf), OCV cubique, hysteresis, 2e RC, gassing. v1.6.0: ajout SUPERCAP (supercondensateur EDLC). v1.5.0: ajout LCO (Li-Cobalt), NiZn, NiCd, PbC (Plomb-Carbone). v1.4.0: seuils de detection (DetectionConfig) et reglages Kalman (KalmanTuning) configurables PAR TECHNOLOGIE. Supportees: Plomb, Lithium, NiFe, Sodium-Ion, NiMH, Alkaline, NiCd, NiZn, LCO, PbC, Supercondensateur. Precision +-1.4% SoC (-30 a +80C).",
   "keywords": [
     "battery",

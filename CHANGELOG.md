@@ -2,6 +2,58 @@
 
 All notable changes to this project are documented here.
 
+## [1.6.11] - 2026-10-19
+
+### 🐛 Fixed — la correction thermique de l'OCV était un NO-OP
+
+`correctVoltageToOCV()` **ajoutait** `dVocv_dT·(T−25)` à l'OCV calculé, puis
+`ocvToSoc(V, T)` **retranchait exactement la même quantité**
+(`removeThermalCorrectionOCV`). Les deux se compensaient : la correction
+thermique n'avait **aucun effet**, et `ocvToSoc()` recevait un OCV **déjà**
+ramené à 25 °C qu'il interprétait de nouveau comme un OCV à T — soit une
+double correction, biais de **−5,1 points de SoC à 13,8 °C**.
+
+**Vérifié numériquement** (V=12,03 V, I=−0,566 A, SoC_ref=65 %) avant correctif :
+
+| T | SoC_voltage |
+|---|---|
+| 5 °C | 55,58 % |
+| 13,8 °C | 54,59 % |
+| 30 °C | 52,94 % |
+
+L'écart ne venait que de `R_int(T)` — la dépendance thermique de l'OCV
+n'apparaissait nulle part.
+
+### ✅ Correctif
+
+`correctVoltageToOCV()` renvoie désormais l'OCV **à la température de mesure**,
+ce qui est sa sémantique naturelle : on a retiré des chutes ohmiques et de
+polarisation **mesurées à T**, on obtient un OCV à T. C'est `ocvToSoc(V, T)` qui
+fait seul la conversion vers la table de référence 25 °C.
+
+Le coefficient `dVocv_dT` reste utilisé, aux bons endroits :
+- `socToOcv(soc, T)` — OCV à T depuis un SoC de référence (utilisé par l'EKF
+  pour prédire la tension terminale) ;
+- `ocvToSoc(V, T)` — conversion vers la table 25 °C.
+
+### 🧪 Vérification
+
+Round-trip `socToOcv(s, T)` → `ocvToSoc(·, T)` **exact** (erreur < 0,001 pt) à
+5 / 13,8 / 25 / 30 / 40 °C pour 40 / 65 / 90 % de SoC. Au repos à 13,8 °C,
+`SoC_voltage` retrouve **exactement** le SoC de référence.
+
+### ⚠️ Effet sur les appelants
+
+Aucun appelant cassé : `BatteryKalman` utilise `ocvToSoc(V, T)`, `SocEkf` utilise
+`socToOcv(soc, T)`, tous deux cohérents avec la nouvelle sémantique. Un seul
+effet de bord corrigé côté BatteryKalman : la comparaison
+`total_ocv < getMinVoltage()` (cutoff basse tension) comparait un OCV@T à une
+V_min définie à 25 °C — l'OCV est désormais ramené à 25 °C avant comparaison.
+
+### 🏷️ Divers
+
+- Version `1.6.10` → `1.6.11` (`library.json` + macro `__BATTERYMODELS_H_VERSION__`)
+
 ---
 
 ## [1.6.10] - 2026-10-18

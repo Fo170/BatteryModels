@@ -2,7 +2,7 @@
 #define BATTERY_MODELS_H
 
 // Version de la librairie (source UNIQUE — agrégée par src/liste_lib.h)
-#define __BATTERYMODELS_H_VERSION__ "1.6.10"
+#define __BATTERYMODELS_H_VERSION__ "1.6.11"
 
 /*
   BatteryModels v1.6.0 - Modèles paramétriques avancés pour batteries
@@ -1264,7 +1264,26 @@ public:
         float V_drop_ohm = R_int * current;
         float V_corrected = V_cell - (V_drop_ohm + V_pol_state + _v2State)
                             - _hystState - _gasState;
-        V_corrected = applyThermalCorrectionOCV(V_corrected, temperature);
+
+        // ⚠️ v1.6.11 (D3) — LA CORRECTION THERMIQUE EST RETIRÉE ICI.
+        // `correctVoltageToOCV()` renvoie désormais l'OCV **À LA TEMPÉRATURE DE
+        // MESURE**, ce qui est sa sémantique naturelle : on a retiré des chutes
+        // ohmiques et de polarisation mesurées à T, on obtient un OCV à T.
+        //
+        // Avant, elle ajoutait `dVocv_dT·(T−25)` ici, puis `ocvToSoc(V, T)`
+        // retranchait EXACTEMENT la même quantité. Les deux s'annulaient :
+        // la correction thermique de l'OCV était un NO-OP total. Vérifié
+        // numériquement (V=12,03 / I=−0,566 / SoC 65 %) :
+        //     T = 5 °C  → SoC_v 55,58 %   (l'écart venait de R_int(T) seul)
+        //     T = 13,8 °C → 54,59 %
+        //     T = 30 °C → 52,94 %
+        // Or `ocvToSoc(V, T)` fait `removeThermalCorrectionOCV()` puis cherche
+        // dans la table 25 °C : lui passer un OCV **déjà** corrigé à 25 °C
+        // double la correction (−5,1 points mesurés à 13,8 °C).
+        //
+        // Le coefficient dVocv_dT reste UTILISÉ, et au bon endroit :
+        // `socToOcv(soc, T)` (utilisé par l'EKF pour prédire V_terminal) et
+        // `ocvToSoc(V, T)` (conversion vers la table de référence 25 °C).
 
         if (r_int_eff) *r_int_eff = R_int;
         if (v_pol) *v_pol = V_pol_state;
