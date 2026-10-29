@@ -2,6 +2,92 @@
 
 All notable changes to this project are documented here.
 
+## [2.3.0] - 2026-10-24
+
+### 🐛 Corrigé — un saut d'ancre OCV de 0,33 V
+
+Le correctif précédent (v2.2.0) ré-échelonnait `V_pol_state` quand `R_pol`
+changeait. **Ce n'était pas la bonne réponse** : la ré-échelle transformait une
+dérive de 60 s en **saut instantané de 0,33 V batterie**. L'amplitude du
+transitoire était inchangée — seule sa durée passait à zéro — et un saut
+d'ancre est pire qu'une dérive : il peut déclencher un recalage de SoC.
+
+**Correctif** : `R_pol` est **lissé** (τ = 10 s). La cible de l'état devient
+continue, et l'état converge via son propre EMA (τ_pol).
+
+### ✅ Vérification
+
+`AC-34` vérifie désormais la **continuité de l'OCV publié**, et non plus l'état
+interne — c'est ce que voit l'appelant.
+
+---
+
+## [2.2.0] - 2026-10-24
+
+### ✨ Added — `SocEkf::getCapacity()`
+
+### 🐛 Corrigé — saut d'ancre à la bascule techno ↔ AFFRLS
+
+`_rPolUsed` mémorise le `R_pol` effectivement employé, et `V_pol_state` est
+remis à l'échelle (`× R_nouveau/R_ancien`) quand il change.
+
+Sans cela, la bascule techno ↔ AFFRLS faisait passer `R_pol` de **4,3 à
+49 mΩ/cell** en laissant l'état continu inchangé : saut d'ancre OCV de **0,33 V
+batterie à 1,23 A** (~5 points de `SoC_voltage`) étalé sur τ_pol.
+
+⚠️ **F-07 reste NON CORRIGÉ** : le gain de gazage `k = 1,82` est conservé
+volontairement. La correction « borner k ≤ 1 » a été implémentée, **mesurée puis
+retirée** car elle casse le calage du palier de floating. F-07 est bloqué par
+F-04 (résistance DC mesurée non appliquée).
+
+---
+
+## [2.1.0] - 2026-10-24
+
+### 🐛 Corrigé — deux modèles de polarisation concurrents
+
+`setPolarizationFromRLS(R1, τ1)` : `correctVoltageToOCV` (ancre OCV) et `SocEkf`
+soustraient désormais la **même** branche de polarisation quand l'AFFRLS est
+valide.
+
+Avant, l'un utilisait une constante techno (**4,32 mΩ/cell**) et l'autre la
+branche mesurée (**49 mΩ/cell**). Mesuré : `v2rc_bm = 0,027 V` contre
+`v2_ekf = 0,160 V`.
+
+---
+
+## [2.0.0] - 2026-10-20
+
+### ♻️ Refonte — header unique → 18 modules
+
+`BatteryModels.h` concentrait quatre responsabilités dans un seul fichier de
+**2 321 lignes**. Il est fractionné :
+
+| Module | Contenu |
+|---|---|
+| `BatteryModelsCore.h` | enums, macros, structs (`OcvPoly`, `DetectionConfig`, `KalmanTuning`, `TechParams`) |
+| `tech/*.h` (12 fichiers) | tables OCV et paramètres, une technologie par fichier |
+| `BatteryModel.h` | `class BatteryModel` |
+| `RlsIdentifier.h` | `class RlsIdentifier` (AFFRLS) |
+| `SocEkf.h` | `class SocEkf` (EKF d'état) |
+| `BatteryModels.h` | **agrégateur** ≤ 40 lignes |
+
+`TECH_PARAMS[idx]` (indexé par enum) est remplacé par un **`switch` nominatif** :
+une erreur de rang d'énumération devient impossible à la compilation.
+
+### ✨ API additive
+
+`getRpol0_mOhm()`, `getDeltaPol()`, `getRpol_mOhm()` exposés — supprime la
+recopie de ces valeurs dans les projets appelants.
+
+### ✅ Iso-comportement
+
+**Aucune formule, aucun coefficient, aucune table n'est modifié** : 1 020 + 158
+littéraux vérifiés identiques, et les 136 vérifications des tests hôte passent
+**sans modification du fichier de test**.
+
+---
+
 ## [1.6.11] - 2026-10-19
 
 ### 🐛 Fixed — la correction thermique de l'OCV était un NO-OP
